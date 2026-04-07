@@ -76,7 +76,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
-  const { userRole, loading: empresaLoading } = useEmpresa()
+  const { userRole, loading: empresaLoading, error: empresaError } = useEmpresa()
 
   async function handleLogout() {
     const supabase = createClient()
@@ -89,6 +89,20 @@ function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen">
         <Skeleton className="w-64 h-full" />
         <div className="flex-1 p-6"><Skeleton className="h-full" /></div>
+      </div>
+    )
+  }
+
+  if (empresaError) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center space-y-4 max-w-md">
+          <p className="text-destructive font-medium">{empresaError}</p>
+          <div className="flex gap-2 justify-center">
+            <Button onClick={() => router.push('/auth/login')}>Ir al login</Button>
+            <Button variant="outline" onClick={handleLogout}>Cerrar sesión</Button>
+          </div>
+        </div>
       </div>
     )
   }

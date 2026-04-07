@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatMXN } from '@/lib/constants'
 import { toast } from 'sonner'
-import { addDays, format } from 'date-fns'
+import { addDays, format, differenceInDays } from 'date-fns'
 import type { Factura } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
@@ -29,6 +29,18 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 const STATUSES = ['pendiente', 'aprobada', 'programada', 'pagada', 'rechazada']
+
+function getVencimientoStatus(fechaVencimiento: string | null, estatus: string): { label: string; className: string } | null {
+  if (!fechaVencimiento || estatus === 'pagada' || estatus === 'rechazada') return null
+  const venc = new Date(fechaVencimiento + 'T12:00:00')
+  const today = new Date()
+  today.setHours(12, 0, 0, 0)
+  const diff = differenceInDays(venc, today)
+  if (diff < 0) return { label: `Vencida (${Math.abs(diff)}d)`, className: 'bg-red-100 text-red-800' }
+  if (diff === 0) return { label: 'Vence hoy', className: 'bg-orange-100 text-orange-800' }
+  if (diff <= 3) return { label: `Vence en ${diff}d`, className: 'bg-yellow-100 text-yellow-800' }
+  return { label: 'Vigente', className: 'bg-green-100 text-green-800' }
+}
 
 interface FacturaExtended extends Factura {
   comprobante_pago_url?: string | null
@@ -173,6 +185,7 @@ export default function FacturasPage() {
                   <TableHead>OC</TableHead>
                   <TableHead>Fecha</TableHead>
                   <TableHead>Vencimiento</TableHead>
+                  <TableHead>Situación</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead>IVA</TableHead>
                   <TableHead>Estatus</TableHead>
@@ -193,6 +206,13 @@ export default function FacturasPage() {
                         <TableCell>{format(new Date(f.fecha_factura + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
                         <TableCell>
                           {f.fecha_vencimiento ? format(new Date(f.fecha_vencimiento + 'T12:00:00'), 'dd/MM/yy') : '—'}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const status = getVencimientoStatus(f.fecha_vencimiento, f.estatus)
+                            if (!status) return '—'
+                            return <Badge variant="outline" className={status.className}>{status.label}</Badge>
+                          })()}
                         </TableCell>
                         <TableCell className="text-right font-medium">{formatMXN(f.total)}</TableCell>
                         <TableCell>
@@ -264,7 +284,7 @@ export default function FacturasPage() {
                       </TableRow>
                       {isExpanded && userRole !== 'viewer' && (
                         <TableRow>
-                          <TableCell colSpan={11} className="bg-muted/30 p-4">
+                          <TableCell colSpan={12} className="bg-muted/30 p-4">
                             <FacturaDetailPanel factura={f} onSaveObservaciones={saveObservaciones} onSaveComprobante={saveComprobante} />
                           </TableCell>
                         </TableRow>
@@ -273,7 +293,7 @@ export default function FacturasPage() {
                   )
                 })}
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">No hay facturas</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={12} className="text-center text-muted-foreground py-8">No hay facturas</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

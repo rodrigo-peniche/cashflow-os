@@ -9,6 +9,7 @@ interface EmpresaContextType {
   empresas: Empresa[]
   userRole: UserRole | null
   loading: boolean
+  error: string | null
   setEmpresa: (id: string) => void
 }
 
@@ -17,6 +18,7 @@ const EmpresaContext = createContext<EmpresaContextType>({
   empresas: [],
   userRole: null,
   loading: true,
+  error: null,
   setEmpresa: () => {},
 })
 
@@ -38,39 +40,67 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [userRole, setUserRole] = useState<UserRole | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
+      try {
+        const supabase = createClient()
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-      // Fetch user's company access
-      const { data: accesos } = await supabase
-        .from('usuario_empresas')
-        .select('empresa_id, rol, empresas(*)')
-        .eq('user_id', user.id)
+        if (authError || !user) {
+          setError('No hay sesión activa. Ve a /auth/login para ingresar.')
+          setLoading(false)
+          return
+        }
 
-      if (!accesos || accesos.length === 0) { setLoading(false); return }
+        // Fetch user's company access
+        const { data: accesos, error: accessError } = await supabase
+          .from('usuario_empresas')
+          .select('empresa_id, rol, empresas(*)')
+          .eq('user_id', user.id)
 
-      const empresasList = accesos
-        .map((a) => a.empresas as unknown as Empresa)
-        .filter(Boolean)
-      setEmpresas(empresasList)
+        if (accessError) {
+          setError(`Error al cargar empresas: ${accessError.message}`)
+          setLoading(false)
+          return
+        }
 
-      // Check saved cookie
-      const savedId = getCookie('empresa_id')
-      const validSaved = savedId && empresasList.some((e) => e.id === savedId)
-      const selectedId = validSaved ? savedId! : empresasList[0].id
+        if (!accesos || accesos.length === 0) {
+          setError('Tu usuario no tiene empresas asignadas. Contacta al administrador.')
+          setLoading(false)
+          return
+        }
 
-      setEmpresaId(selectedId)
-      setCookie('empresa_id', selectedId)
+        const empresasList = accesos
+          .map((a) => a.empresas as unknown as Empresa)
+          .filter(Boolean)
 
-      // Set role for selected empresa
-      const acceso = accesos.find((a) => a.empresa_id === selectedId)
-      setUserRole((acceso?.rol as UserRole) || null)
+        if (empresasList.length === 0) {
+          setError('No se encontraron empresas válidas.')
+          setLoading(false)
+          return
+        }
 
-      setLoading(false)
+        setEmpresas(empresasList)
+
+        // Check saved cookie
+        const savedId = getCookie('empresa_id')
+        const validSaved = savedId && empresasList.some((e) => e.id === savedId)
+        const selectedId = validSaved ? savedId! : empresasList[0].id
+
+        setEmpresaId(selectedId)
+        setCookie('empresa_id', selectedId)
+
+        // Set role for selected empresa
+        const acceso = accesos.find((a) => a.empresa_id === selectedId)
+        setUserRole((acceso?.rol as UserRole) || null)
+
+        setLoading(false)
+      } catch (err) {
+        setError(`Error inesperado: ${err}`)
+        setLoading(false)
+      }
     }
     load()
   }, [])
@@ -82,7 +112,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <EmpresaContext.Provider value={{ empresaId, empresas, userRole, loading, setEmpresa }}>
+    <EmpresaContext.Provider value={{ empresaId, empresas, userRole, loading, error, setEmpresa }}>
       {children}
     </EmpresaContext.Provider>
   )

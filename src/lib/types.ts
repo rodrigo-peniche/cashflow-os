@@ -17,10 +17,13 @@ export interface UsuarioEmpresa {
   empresas?: Empresa
 }
 
+export type ModalidadPago = 'factura_primero' | 'pago_primero'
+
 export interface Proveedor {
   id: string
   empresa_id: string
   nombre_empresa: string
+  id_banco: string | null
   rfc: string
   contacto_nombre: string
   contacto_email: string
@@ -28,6 +31,13 @@ export interface Proveedor {
   banco: string
   clabe: string
   cuenta: string | null
+  titular: string | null
+  tipo_cuenta: string | null
+  moneda: string
+  dias_credito: number
+  requiere_concepto: boolean
+  giro: string | null
+  modalidad_pago: ModalidadPago
   token_acceso: string
   activo: boolean
   created_at: string

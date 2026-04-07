@@ -103,7 +103,7 @@ export function ExcelImport({ templateKey, onSuccess, empresaId, transformRows }
       cleanRows = cleanRows.map((row) => {
         const converted: Record<string, unknown> = {}
         Object.entries(row).forEach(([k, v]) => {
-          if (k === 'es_fijo') {
+          if (k === 'es_fijo' || k === 'requiere_concepto') {
             converted[k] = String(v).toUpperCase() === 'SI' || v === true || v === 1
           } else {
             converted[k] = v
