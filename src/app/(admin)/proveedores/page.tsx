@@ -15,6 +15,7 @@ import { MEXICAN_BANKS, RFC_REGEX, CLABE_REGEX } from '@/lib/constants'
 import { toast } from 'sonner'
 import type { Proveedor, ModalidadPago } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
+import { ExportButton } from '@/components/shared/export-button'
 import { Users, Plus, Copy, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { useTableSort } from '@/lib/hooks/use-table-sort'
@@ -134,18 +135,37 @@ export default function ProveedoresPage() {
     activo: (p) => p.activo ? 0 : 1,
   })
 
+  const exportData = sorted.map(p => ({
+    'ID Banco': p.id_banco || '',
+    'Empresa': p.nombre_empresa,
+    'RFC': p.rfc,
+    'Contacto': p.contacto_nombre,
+    'Email': p.contacto_email,
+    'Teléfono': p.telefono || '',
+    'CLABE': p.clabe,
+    'Titular': p.titular || '',
+    'Banco': p.banco,
+    'Moneda': p.moneda,
+    'Días Crédito': p.dias_credito,
+    'Modalidad': p.modalidad_pago === 'factura_primero' ? 'Se paga con factura' : 'Se paga sin factura',
+    'Estado': p.activo ? 'Vigente' : 'Inactivo',
+  }))
+
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Users className="h-6 w-6" /> Proveedores</h1>
-        {userRole !== 'viewer' && (
-          <div className="flex gap-2">
-            <ExcelImport templateKey="proveedores" empresaId={empresaId} onSuccess={loadData} />
-            <Button onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-2" /> Nuevo</Button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <ExportButton data={exportData} filename="proveedores" sheetName="Proveedores" />
+          {userRole !== 'viewer' && (
+            <>
+              <ExcelImport templateKey="proveedores" empresaId={empresaId} onSuccess={loadData} />
+              <Button onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-2" /> Nuevo</Button>
+            </>
+          )}
+        </div>
       </div>
 
       {showForm && (

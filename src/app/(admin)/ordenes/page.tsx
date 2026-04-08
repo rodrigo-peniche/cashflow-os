@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import { format } from 'date-fns'
 import type { OrdenCompra } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
+import { ExportButton } from '@/components/shared/export-button'
 import { FileText, Plus } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { useTableSort } from '@/lib/hooks/use-table-sort'
@@ -90,38 +91,50 @@ export default function OrdenesPage() {
     estatus: (o) => o.estatus,
   })
 
+  const exportData = sorted.map(o => ({
+    '# OC': o.numero_oc,
+    'Proveedor': (o as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || '',
+    'Descripción': o.descripcion || '',
+    'Monto': o.monto_total,
+    'Emisión': o.fecha_emision,
+    'Estatus': o.estatus,
+  }))
+
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="h-6 w-6" /> Órdenes de Compra</h1>
-        {userRole !== 'viewer' && (
-          <div className="flex gap-2">
-            <ExcelImport
-              templateKey="ordenes"
-              onSuccess={loadData}
-              transformRows={async (rows) => {
-                const supabase = createClient()
-                const { data: provs } = await supabase.from('proveedores').select('id, rfc').eq('empresa_id', empresaId)
-                const rfcMap = new Map((provs || []).map((p) => [p.rfc.toUpperCase(), p.id]))
-                return rows.map((row) => {
-                  const rfc = String(row._rfc_proveedor || '').toUpperCase()
-                  return {
-                    numero_oc: row.numero_oc,
-                    proveedor_id: rfcMap.get(rfc) || null,
-                    descripcion: row.descripcion || null,
-                    monto_total: row.monto_total,
-                    fecha_emision: row.fecha_emision,
-                    fecha_esperada_entrega: row.fecha_esperada_entrega || null,
-                    empresa_id: empresaId,
-                  }
-                })
-              }}
-            />
-            <Button onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-2" /> Nueva OC</Button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <ExportButton data={exportData} filename="ordenes_compra" sheetName="Ordenes" />
+          {userRole !== 'viewer' && (
+            <>
+              <ExcelImport
+                templateKey="ordenes"
+                onSuccess={loadData}
+                transformRows={async (rows) => {
+                  const supabase = createClient()
+                  const { data: provs } = await supabase.from('proveedores').select('id, rfc').eq('empresa_id', empresaId)
+                  const rfcMap = new Map((provs || []).map((p) => [p.rfc.toUpperCase(), p.id]))
+                  return rows.map((row) => {
+                    const rfc = String(row._rfc_proveedor || '').toUpperCase()
+                    return {
+                      numero_oc: row.numero_oc,
+                      proveedor_id: rfcMap.get(rfc) || null,
+                      descripcion: row.descripcion || null,
+                      monto_total: row.monto_total,
+                      fecha_emision: row.fecha_emision,
+                      fecha_esperada_entrega: row.fecha_esperada_entrega || null,
+                      empresa_id: empresaId,
+                    }
+                  })
+                }}
+              />
+              <Button onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-2" /> Nueva OC</Button>
+            </>
+          )}
+        </div>
       </div>
 
       {showForm && (

@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import { format } from 'date-fns'
 import type { FlujoTentativo } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
+import { ExportButton } from '@/components/shared/export-button'
 import { TrendingUpDown, Plus, Trash2 } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { useTableSort } from '@/lib/hooks/use-table-sort'
@@ -95,36 +96,50 @@ export default function FlujosPage() {
     probabilidad: (f) => f.probabilidad,
   })
 
+  const exportData = sorted.map(f => ({
+    'Fecha': f.fecha,
+    'Tipo': f.tipo,
+    'Descripción': f.descripcion,
+    'Monto': f.monto,
+    'Probabilidad': f.probabilidad + '%',
+    'Realizado': f.realizado ? 'Sí' : 'No',
+    'Monto Real': f.monto_real || '',
+    'Notas': f.notas || '',
+  }))
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2"><TrendingUpDown className="h-6 w-6" /> Flujos Tentativos</h1>
-        {userRole !== 'viewer' && (
-          <div className="flex gap-2">
-            <ExcelImport
-              templateKey="flujos"
-              onSuccess={loadData}
-              transformRows={async (rows) => {
-                const supabase = createClient()
-                const { data: ctas } = await supabase.from('cuentas_bancarias').select('id, nombre').eq('empresa_id', empresaId)
-                const ctaMap = new Map((ctas || []).map((c) => [c.nombre.toUpperCase(), c.id]))
-                return rows.map((row) => ({
-                  empresa_id: empresaId,
-                  fecha: row.fecha,
-                  tipo: row.tipo,
-                  descripcion: row.descripcion,
-                  monto: row.monto,
-                  probabilidad: row.probabilidad || 100,
-                  cuenta_id: ctaMap.get(String(row._nombre_cuenta || '').toUpperCase()) || null,
-                  notas: row.notas || null,
-                }))
-              }}
-            />
-            <Button onClick={() => setShowForm(!showForm)}>
-              <Plus className="h-4 w-4 mr-2" /> Nuevo flujo
-            </Button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <ExportButton data={exportData} filename="flujos_tentativos" sheetName="Flujos" />
+          {userRole !== 'viewer' && (
+            <>
+              <ExcelImport
+                templateKey="flujos"
+                onSuccess={loadData}
+                transformRows={async (rows) => {
+                  const supabase = createClient()
+                  const { data: ctas } = await supabase.from('cuentas_bancarias').select('id, nombre').eq('empresa_id', empresaId)
+                  const ctaMap = new Map((ctas || []).map((c) => [c.nombre.toUpperCase(), c.id]))
+                  return rows.map((row) => ({
+                    empresa_id: empresaId,
+                    fecha: row.fecha,
+                    tipo: row.tipo,
+                    descripcion: row.descripcion,
+                    monto: row.monto,
+                    probabilidad: row.probabilidad || 100,
+                    cuenta_id: ctaMap.get(String(row._nombre_cuenta || '').toUpperCase()) || null,
+                    notas: row.notas || null,
+                  }))
+                }}
+              />
+              <Button onClick={() => setShowForm(!showForm)}>
+                <Plus className="h-4 w-4 mr-2" /> Nuevo flujo
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {showForm && (
