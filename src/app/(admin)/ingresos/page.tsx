@@ -14,12 +14,22 @@ import { format, addDays, startOfWeek, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import type { Sucursal, CanalIngreso } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DollarSign, Plus, ChevronLeft, ChevronRight, Settings, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 const DIAS_SEMANA = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'] as const
 
+const FRECUENCIAS_INGRESO = [
+  { value: 'diario', label: 'Diario' },
+  { value: 'semanal', label: 'Semanal' },
+  { value: 'quincenal', label: 'Quincenal' },
+  { value: 'mensual', label: 'Mensual' },
+] as const
+
 const CANALES_DEFAULT = ['Efectivo', 'Tarjeta', 'Clip', 'TPV', 'Uber', 'Rappi']
+
+const CANALES_PREDEFINIDOS = ['Efectivo', 'Tarjeta', 'Clip', 'TPV', 'Uber', 'Rappi', 'Transferencia', 'Cheque', 'MercadoPago', 'PayPal', 'Otro']
 
 interface IngresoCell {
   id?: string
@@ -42,6 +52,7 @@ export default function IngresosPage() {
   // Config form state
   const [newSucursal, setNewSucursal] = useState('')
   const [newCanal, setNewCanal] = useState('')
+  const [newCanalFrecuencia, setNewCanalFrecuencia] = useState('diario')
   const [newCanalDia, setNewCanalDia] = useState('')
   const [newCanalMonto, setNewCanalMonto] = useState('')
 
@@ -121,12 +132,14 @@ export default function IngresosPage() {
     const { error } = await supabase.from('canales_ingreso').insert({
       empresa_id: empresaId,
       nombre: newCanal.trim(),
+      frecuencia: newCanalFrecuencia,
       dia_deposito: newCanalDia || null,
       monto_aproximado: newCanalMonto ? Number(newCanalMonto) : null,
     })
     if (error) { toast.error(error.message); return }
     toast.success('Canal creado')
     setNewCanal('')
+    setNewCanalFrecuencia('diario')
     setNewCanalDia('')
     setNewCanalMonto('')
     loadData()
@@ -255,10 +268,13 @@ export default function IngresosPage() {
                 <Label className="font-semibold">Canales de ingreso</Label>
                 <div className="flex flex-wrap gap-2">
                   {canales.map(c => (
-                    <Badge key={c.id} variant="outline">
+                    <Badge key={c.id} variant="outline" className="py-1">
                       {c.nombre}
-                      {c.dia_deposito && <span className="ml-1 text-xs opacity-60">({c.dia_deposito})</span>}
-                      {c.monto_aproximado && <span className="ml-1 text-xs opacity-60">~{formatMXN(c.monto_aproximado)}</span>}
+                      <span className="ml-1 text-xs opacity-60">
+                        ({FRECUENCIAS_INGRESO.find(f => f.value === c.frecuencia)?.label || c.frecuencia})
+                      </span>
+                      {c.dia_deposito && <span className="ml-1 text-xs opacity-60">dep: {c.dia_deposito}</span>}
+                      {c.monto_aproximado != null && c.monto_aproximado > 0 && <span className="ml-1 text-xs opacity-60">~{formatMXN(c.monto_aproximado)}</span>}
                     </Badge>
                   ))}
                 </div>
@@ -267,14 +283,37 @@ export default function IngresosPage() {
                     Crear canales predeterminados (Efectivo, Tarjeta, Clip, TPV, Uber, Rappi)
                   </Button>
                 )}
-                <div className="flex gap-2">
-                  <Input placeholder="Nombre canal..." value={newCanal} onChange={(e) => setNewCanal(e.target.value)} className="flex-1" />
-                  <select className="border rounded px-2 text-sm" value={newCanalDia} onChange={(e) => setNewCanalDia(e.target.value)}>
-                    <option value="">Día depósito</option>
-                    {DIAS_SEMANA.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                  <Input placeholder="Monto aprox." value={newCanalMonto} onChange={(e) => setNewCanalMonto(e.target.value)} className="w-[120px]" type="number" />
-                  <Button size="sm" onClick={addCanal}><Plus className="h-4 w-4" /></Button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Select value={newCanal} onValueChange={setNewCanal}>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Seleccionar canal..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CANALES_PREDEFINIDOS.map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={newCanalFrecuencia} onValueChange={setNewCanalFrecuencia}>
+                      <SelectTrigger className="w-[140px]">
+                        <SelectValue placeholder="Frecuencia" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FRECUENCIAS_INGRESO.map(f => (
+                          <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <select className="border rounded px-2 text-sm h-9" value={newCanalDia} onChange={(e) => setNewCanalDia(e.target.value)}>
+                      <option value="">Día depósito (opcional)</option>
+                      {DIAS_SEMANA.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+                    </select>
+                    <Input placeholder="Monto aprox." value={newCanalMonto} onChange={(e) => setNewCanalMonto(e.target.value)} className="w-[130px]" type="number" />
+                    <Button size="sm" onClick={addCanal}><Plus className="h-4 w-4" /></Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -322,6 +361,9 @@ export default function IngresosPage() {
                         <td className="py-1 pr-4">
                           <div className="flex items-center gap-1">
                             <span>{canal.nombre}</span>
+                            <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">
+                              {FRECUENCIAS_INGRESO.find(f => f.value === canal.frecuencia)?.label || canal.frecuencia}
+                            </span>
                             {canal.dia_deposito && (
                               <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">{canal.dia_deposito}</span>
                             )}

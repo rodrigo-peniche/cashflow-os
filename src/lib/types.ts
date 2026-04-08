@@ -146,10 +146,13 @@ export interface Sucursal {
   created_at: string
 }
 
+export type FrecuenciaIngreso = 'diario' | 'semanal' | 'quincenal' | 'mensual'
+
 export interface CanalIngreso {
   id: string
   empresa_id: string
   nombre: string
+  frecuencia: FrecuenciaIngreso
   dia_deposito: string | null
   monto_aproximado: number | null
   activo: boolean

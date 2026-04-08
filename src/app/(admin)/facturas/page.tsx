@@ -13,12 +13,13 @@ import { toast } from 'sonner'
 import { addDays, format, differenceInDays } from 'date-fns'
 import type { Factura, Proveedor } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
+import { ExportButton } from '@/components/shared/export-button'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { FileUpload } from '@/components/shared/file-upload'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus } from 'lucide-react'
+import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays } from 'lucide-react'
 import { SortableHeader } from '@/components/shared/sortable-header'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -165,13 +166,28 @@ export default function FacturasPage() {
     })
   }
 
+  const exportData = filtered.map(f => ({
+    '# Factura': f.numero_factura,
+    'Proveedor': getProveedorNombre(f),
+    'Fecha': f.fecha_factura,
+    'Vencimiento': f.fecha_vencimiento || '',
+    'Subtotal': f.subtotal,
+    'IVA': f.tipo_iva === '16' ? '16%' : f.tipo_iva === '0' ? '0%' : 'Exento',
+    'Total': f.total,
+    'Estatus': f.estatus,
+    'Pago programado': f.fecha_programada_pago || '',
+    'Observaciones': f.observaciones || '',
+  }))
+
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Receipt className="h-6 w-6" /> Facturas</h1>
-        {userRole !== 'viewer' && (
+        <div className="flex gap-2">
+          <ExportButton data={exportData} filename="facturas" sheetName="Facturas" />
+          {userRole !== 'viewer' && (
           <ExcelImport
             templateKey="facturas"
             empresaId={empresaId}
@@ -247,7 +263,8 @@ export default function FacturasPage() {
               })
             }}
           />
-        )}
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -388,6 +405,8 @@ export default function FacturasPage() {
                               onSaveObservaciones={saveObservaciones}
                               onSaveComprobante={saveComprobante}
                               onAssignProveedor={assignProveedor}
+                              onSetPaymentDate={setPaymentDate}
+                              onUpdateEstatus={updateEstatus}
                               onReload={loadData}
                             />
                           </TableCell>
@@ -415,6 +434,8 @@ function FacturaDetailPanel({
   onSaveObservaciones,
   onSaveComprobante,
   onAssignProveedor,
+  onSetPaymentDate,
+  onUpdateEstatus,
   onReload,
 }: {
   factura: FacturaExtended
@@ -423,6 +444,8 @@ function FacturaDetailPanel({
   onSaveObservaciones: (id: string, obs: string) => void
   onSaveComprobante: (id: string, url: string) => void
   onAssignProveedor: (facturaId: string, proveedorId: string) => void
+  onSetPaymentDate: (id: string, fecha: string) => void
+  onUpdateEstatus: (id: string, estatus: string) => void
   onReload: () => void
 }) {
   const { empresaId } = useEmpresa()
@@ -431,6 +454,7 @@ function FacturaDetailPanel({
   const [newProvNombre, setNewProvNombre] = useState('')
   const [newProvRfc, setNewProvRfc] = useState('')
   const [creatingProv, setCreatingProv] = useState(false)
+  const [customDate, setCustomDate] = useState(factura.fecha_programada_pago || '')
 
   async function handleCreateProveedor() {
     if (!newProvNombre.trim() || !newProvRfc.trim()) {
@@ -460,8 +484,33 @@ function FacturaDetailPanel({
     setCreatingProv(false)
   }
 
+  function handleScheduleDay(date: Date) {
+    const fecha = format(date, 'yyyy-MM-dd')
+    onSetPaymentDate(factura.id, fecha)
+    setCustomDate(fecha)
+    toast.success(`Pago programado para ${format(date, 'dd/MM/yyyy')}`)
+  }
+
+  // Generate today + next 10 days
+  const today = new Date()
+  today.setHours(12, 0, 0, 0)
+  const dayBubbles = Array.from({ length: 11 }, (_, i) => {
+    const d = addDays(today, i)
+    return { date: d, label: i === 0 ? 'Hoy' : format(d, 'dd/MM'), dayName: format(d, 'EEE', { locale: undefined }), iso: format(d, 'yyyy-MM-dd') }
+  })
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Observaciones - always visible at top */}
+      {factura.observaciones && (
+        <div className="p-3 rounded-md bg-blue-50 border border-blue-200">
+          <p className="text-sm font-medium text-blue-800 flex items-center gap-2 mb-1">
+            <MessageSquare className="h-4 w-4" /> Observaciones
+          </p>
+          <p className="text-sm text-blue-900 whitespace-pre-wrap">{factura.observaciones}</p>
+        </div>
+      )}
+
       {/* Proveedor assignment */}
       {!factura.proveedor_id && userRole !== 'viewer' && (
         <div className="p-3 rounded-md border border-orange-200 bg-orange-50 space-y-3">
@@ -502,10 +551,55 @@ function FacturaDetailPanel({
         </div>
       )}
 
+      {/* Payment scheduling */}
+      {userRole !== 'viewer' && factura.estatus !== 'pagada' && factura.estatus !== 'rechazada' && (
+        <div className="p-3 rounded-md border border-purple-200 bg-purple-50 space-y-3">
+          <Label className="flex items-center gap-2 text-purple-800">
+            <CalendarDays className="h-4 w-4" /> Programar pago
+          </Label>
+          {factura.fecha_programada_pago && (
+            <p className="text-sm text-purple-700">
+              Pago programado: <strong>{format(new Date(factura.fecha_programada_pago + 'T12:00:00'), 'dd/MM/yyyy')}</strong>
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {dayBubbles.map(({ date, label, iso }) => (
+              <button
+                key={iso}
+                onClick={() => handleScheduleDay(date)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
+                  ${factura.fecha_programada_pago === iso
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-purple-800 border-purple-300 hover:bg-purple-100'
+                  }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              className="w-[180px]"
+              value={customDate}
+              onChange={(e) => {
+                setCustomDate(e.target.value)
+                if (e.target.value) {
+                  onSetPaymentDate(factura.id, e.target.value)
+                  toast.success(`Pago programado para ${format(new Date(e.target.value + 'T12:00:00'), 'dd/MM/yyyy')}`)
+                }
+              }}
+            />
+            <span className="text-xs text-purple-600">o selecciona fecha personalizada</span>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Editable observaciones */}
         <div className="space-y-3">
           <Label className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" /> Observaciones
+            <MessageSquare className="h-4 w-4" /> Editar observaciones
           </Label>
           <Textarea
             value={obs}
@@ -520,21 +614,42 @@ function FacturaDetailPanel({
             </Button>
           )}
         </div>
-        {userRole !== 'viewer' && (
-          <div className="space-y-3">
-            <Label className="flex items-center gap-2">
-              <Upload className="h-4 w-4" /> Comprobante de pago
-            </Label>
-            <FileUpload
-              bucket="comprobantes-pago"
-              folder={factura.proveedor_id}
-              accept=".pdf,.png,.jpg,.jpeg"
-              label="Subir comprobante de pago"
-              value={factura.comprobante_pago_url}
-              onUpload={(url) => onSaveComprobante(factura.id, url)}
-            />
-          </div>
-        )}
+
+        <div className="space-y-3">
+          {/* Comprobante */}
+          {userRole !== 'viewer' && (
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2">
+                <Upload className="h-4 w-4" /> Comprobante de pago
+              </Label>
+              <FileUpload
+                bucket="comprobantes-pago"
+                folder={factura.proveedor_id}
+                accept=".pdf,.png,.jpg,.jpeg"
+                label="Subir comprobante de pago"
+                value={factura.comprobante_pago_url}
+                onUpload={(url) => onSaveComprobante(factura.id, url)}
+              />
+            </div>
+          )}
+
+          {/* Reject button */}
+          {userRole !== 'viewer' && factura.estatus !== 'rechazada' && factura.estatus !== 'pagada' && (
+            <div className="pt-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  onUpdateEstatus(factura.id, 'rechazada')
+                  toast.success('Factura rechazada')
+                }}
+                className="w-full"
+              >
+                <XCircle className="h-4 w-4 mr-2" /> Rechazar factura
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
