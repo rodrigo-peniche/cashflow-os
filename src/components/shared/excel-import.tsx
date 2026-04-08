@@ -127,6 +127,17 @@ export function ExcelImport({ templateKey, onSuccess, empresaId, transformRows }
       const errors: string[] = []
       let success = 0
 
+      // Deduplicate rows by onConflict keys before upserting
+      if (template.onConflict) {
+        const conflictKeys = template.onConflict.split(',').map(k => k.trim())
+        const seen = new Map<string, number>()
+        cleanRows.forEach((row, idx) => {
+          const key = conflictKeys.map(k => String(row[k] || '').toUpperCase()).join('|')
+          seen.set(key, idx)
+        })
+        cleanRows = Array.from(seen.values()).map(idx => cleanRows[idx])
+      }
+
       // Insert/upsert in batches of 50
       for (let i = 0; i < cleanRows.length; i += 50) {
         const batch = cleanRows.slice(i, i + 50)
