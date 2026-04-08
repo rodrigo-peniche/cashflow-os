@@ -128,7 +128,7 @@ export default function ProveedoresPage() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><Users className="h-6 w-6" /> Proveedores</h1>
         {userRole !== 'viewer' && (
           <div className="flex gap-2">
-            <ExcelImport templateKey="proveedores" onSuccess={loadData} />
+            <ExcelImport templateKey="proveedores" empresaId={empresaId} onSuccess={loadData} />
             <Button onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-2" /> Nuevo</Button>
           </div>
         )}

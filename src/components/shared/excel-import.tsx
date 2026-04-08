@@ -105,6 +105,9 @@ export function ExcelImport({ templateKey, onSuccess, empresaId, transformRows }
         Object.entries(row).forEach(([k, v]) => {
           if (k === 'es_fijo' || k === 'requiere_concepto') {
             converted[k] = String(v).toUpperCase() === 'SI' || v === true || v === 1
+          } else if (k === 'dias_credito' || k === 'dia_del_mes') {
+            const num = Number(v)
+            converted[k] = isNaN(num) ? 0 : num
           } else {
             converted[k] = v
           }
