@@ -15,7 +15,7 @@ import { es } from 'date-fns/locale'
 import type { Sucursal, CanalIngreso } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { DollarSign, Plus, ChevronLeft, ChevronRight, Settings, Download } from 'lucide-react'
+import { DollarSign, Plus, ChevronLeft, ChevronRight, Settings, Download, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 const DIAS_SEMANA = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'] as const
@@ -52,6 +52,7 @@ export default function IngresosPage() {
   // Config form state
   const [newSucursal, setNewSucursal] = useState('')
   const [newCanal, setNewCanal] = useState('')
+  const [newCanalCustom, setNewCanalCustom] = useState('')
   const [newCanalFrecuencia, setNewCanalFrecuencia] = useState('diario')
   const [newCanalDia, setNewCanalDia] = useState('')
   const [newCanalMonto, setNewCanalMonto] = useState('')
@@ -116,32 +117,53 @@ export default function IngresosPage() {
     }
   }
 
-  async function addSucursal() {
-    if (!newSucursal.trim()) return
+  async function addSucursal(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    const nombre = newSucursal.trim()
+    if (!nombre) { toast.error('Escribe un nombre de sucursal'); return }
+    if (!empresaId) { toast.error('No hay empresa seleccionada'); return }
     const supabase = createClient()
-    const { error } = await supabase.from('sucursales').insert({ empresa_id: empresaId, nombre: newSucursal.trim() })
-    if (error) { toast.error(error.message); return }
-    toast.success('Sucursal creada')
+    const { error } = await supabase.from('sucursales').insert({ empresa_id: empresaId, nombre })
+    if (error) { toast.error('Error al crear sucursal: ' + error.message); return }
+    toast.success(`Sucursal "${nombre}" creada`)
     setNewSucursal('')
     loadData()
   }
 
-  async function addCanal() {
-    if (!newCanal.trim()) return
+  async function deleteSucursal(id: string) {
+    const supabase = createClient()
+    await supabase.from('sucursales').update({ activa: false }).eq('id', id)
+    toast.success('Sucursal eliminada')
+    loadData()
+  }
+
+  async function addCanal(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    const nombre = newCanal === 'Otro' ? newCanalCustom.trim() : newCanal.trim()
+    if (!nombre) { toast.error('Selecciona o escribe un nombre de canal'); return }
+    if (!empresaId) { toast.error('No hay empresa seleccionada'); return }
     const supabase = createClient()
     const { error } = await supabase.from('canales_ingreso').insert({
       empresa_id: empresaId,
-      nombre: newCanal.trim(),
+      nombre,
       frecuencia: newCanalFrecuencia,
-      dia_deposito: newCanalDia || null,
+      dia_deposito: newCanalFrecuencia !== 'diario' ? (newCanalDia || null) : null,
       monto_aproximado: newCanalMonto ? Number(newCanalMonto) : null,
     })
-    if (error) { toast.error(error.message); return }
-    toast.success('Canal creado')
+    if (error) { toast.error('Error al crear canal: ' + error.message); return }
+    toast.success(`Canal "${nombre}" creado`)
     setNewCanal('')
+    setNewCanalCustom('')
     setNewCanalFrecuencia('diario')
     setNewCanalDia('')
     setNewCanalMonto('')
+    loadData()
+  }
+
+  async function deleteCanal(id: string) {
+    const supabase = createClient()
+    await supabase.from('canales_ingreso').update({ activo: false }).eq('id', id)
+    toast.success('Canal eliminado')
     loadData()
   }
 
@@ -247,43 +269,70 @@ export default function IngresosPage() {
       {showConfig && (
         <Card>
           <CardHeader><CardTitle className="text-base">Configurar sucursales y canales</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Sucursales */}
               <div className="space-y-3">
-                <Label className="font-semibold">Sucursales</Label>
-                <div className="flex flex-wrap gap-2">
-                  {sucursales.map(s => (
-                    <Badge key={s.id} variant="outline">{s.nombre}</Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input placeholder="Nueva sucursal..." value={newSucursal} onChange={(e) => setNewSucursal(e.target.value)} />
-                  <Button size="sm" onClick={addSucursal}><Plus className="h-4 w-4" /></Button>
-                </div>
+                <Label className="font-semibold text-base">Sucursales</Label>
+                {sucursales.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {sucursales.map(s => (
+                      <Badge key={s.id} variant="outline" className="py-1 pr-1 flex items-center gap-1">
+                        {s.nombre}
+                        <button
+                          onClick={() => deleteSucursal(s.id)}
+                          className="ml-1 rounded-full hover:bg-red-100 p-0.5"
+                          title="Eliminar sucursal"
+                        >
+                          <X className="h-3 w-3 text-red-500" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <form onSubmit={addSucursal} className="flex gap-2">
+                  <Input
+                    placeholder="Nombre de la sucursal..."
+                    value={newSucursal}
+                    onChange={(e) => setNewSucursal(e.target.value)}
+                  />
+                  <Button type="submit" size="sm"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
+                </form>
               </div>
 
               {/* Canales */}
               <div className="space-y-3">
-                <Label className="font-semibold">Canales de ingreso</Label>
-                <div className="flex flex-wrap gap-2">
-                  {canales.map(c => (
-                    <Badge key={c.id} variant="outline" className="py-1">
-                      {c.nombre}
-                      <span className="ml-1 text-xs opacity-60">
-                        ({FRECUENCIAS_INGRESO.find(f => f.value === c.frecuencia)?.label || c.frecuencia})
-                      </span>
-                      {c.dia_deposito && <span className="ml-1 text-xs opacity-60">dep: {c.dia_deposito}</span>}
-                      {c.monto_aproximado != null && c.monto_aproximado > 0 && <span className="ml-1 text-xs opacity-60">~{formatMXN(c.monto_aproximado)}</span>}
-                    </Badge>
-                  ))}
-                </div>
+                <Label className="font-semibold text-base">Canales de ingreso</Label>
+                {canales.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {canales.map(c => (
+                      <Badge key={c.id} variant="outline" className="py-1 pr-1 flex items-center gap-1">
+                        {c.nombre}
+                        <span className="text-xs opacity-60">
+                          ({FRECUENCIAS_INGRESO.find(f => f.value === c.frecuencia)?.label || 'Diario'})
+                        </span>
+                        {c.dia_deposito && <span className="text-xs opacity-60">dep: {c.dia_deposito}</span>}
+                        {c.monto_aproximado != null && c.monto_aproximado > 0 && (
+                          <span className="text-xs opacity-60">~{formatMXN(c.monto_aproximado)}</span>
+                        )}
+                        <button
+                          onClick={() => deleteCanal(c.id)}
+                          className="ml-1 rounded-full hover:bg-red-100 p-0.5"
+                          title="Eliminar canal"
+                        >
+                          <X className="h-3 w-3 text-red-500" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
                 {canales.length === 0 && (
                   <Button variant="outline" size="sm" onClick={initDefaults}>
                     Crear canales predeterminados (Efectivo, Tarjeta, Clip, TPV, Uber, Rappi)
                   </Button>
                 )}
-                <div className="space-y-2">
+                <form onSubmit={addCanal} className="space-y-2 border rounded-md p-3 bg-muted/30">
+                  <Label className="text-sm text-muted-foreground">Agregar canal</Label>
                   <div className="flex gap-2">
                     <Select value={newCanal} onValueChange={setNewCanal}>
                       <SelectTrigger className="flex-1">
@@ -306,15 +355,32 @@ export default function IngresosPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {newCanal === 'Otro' && (
+                    <Input
+                      placeholder="Escribe el nombre del canal..."
+                      value={newCanalCustom}
+                      onChange={(e) => setNewCanalCustom(e.target.value)}
+                    />
+                  )}
+                  {newCanalFrecuencia !== 'diario' && (
+                    <div className="flex gap-2">
+                      <Select value={newCanalDia} onValueChange={setNewCanalDia}>
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Día de depósito..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DIAS_SEMANA.map(d => (
+                            <SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="flex gap-2">
-                    <select className="border rounded px-2 text-sm h-9" value={newCanalDia} onChange={(e) => setNewCanalDia(e.target.value)}>
-                      <option value="">Día depósito (opcional)</option>
-                      {DIAS_SEMANA.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-                    </select>
-                    <Input placeholder="Monto aprox." value={newCanalMonto} onChange={(e) => setNewCanalMonto(e.target.value)} className="w-[130px]" type="number" />
-                    <Button size="sm" onClick={addCanal}><Plus className="h-4 w-4" /></Button>
+                    <Input placeholder="Monto aprox. (opcional)" value={newCanalMonto} onChange={(e) => setNewCanalMonto(e.target.value)} className="flex-1" type="number" />
+                    <Button type="submit" size="sm"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
                   </div>
-                </div>
+                </form>
               </div>
             </div>
           </CardContent>
