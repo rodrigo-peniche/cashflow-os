@@ -68,6 +68,7 @@ export function ExcelImport({ templateKey, onSuccess, empresaId, transformRows }
 
   async function handleImport() {
     if (!preview) return
+    if (!empresaId) { toast.error('No hay empresa seleccionada'); return }
     setImporting(true)
 
     const validationErrors = validateRows(preview)
