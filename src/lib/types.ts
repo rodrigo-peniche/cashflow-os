@@ -3,6 +3,10 @@ export interface Empresa {
   nombre: string
   rfc_empresa: string | null
   activa: boolean
+  plan: string
+  fecha_vencimiento_plan: string | null
+  max_usuarios: number
+  notas_admin: string | null
   created_at: string
 }
 

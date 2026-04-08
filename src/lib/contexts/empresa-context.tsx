@@ -8,6 +8,7 @@ interface EmpresaContextType {
   empresaId: string | null
   empresas: Empresa[]
   userRole: UserRole | null
+  isPlatformAdmin: boolean
   loading: boolean
   error: string | null
   setEmpresa: (id: string) => void
@@ -17,6 +18,7 @@ const EmpresaContext = createContext<EmpresaContextType>({
   empresaId: null,
   empresas: [],
   userRole: null,
+  isPlatformAdmin: false,
   loading: true,
   error: null,
   setEmpresa: () => {},
@@ -39,6 +41,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
   const [empresaId, setEmpresaId] = useState<string | null>(null)
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [userRole, setUserRole] = useState<UserRole | null>(null)
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -52,6 +55,17 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
           setError('No hay sesión activa. Ve a /auth/login para ingresar.')
           setLoading(false)
           return
+        }
+
+        // Check platform admin
+        const { data: platformCheck } = await supabase
+          .from('platform_admins')
+          .select('id')
+          .eq('user_id', user.id)
+          .single()
+
+        if (platformCheck) {
+          setIsPlatformAdmin(true)
         }
 
         // Fetch user's company access
@@ -82,12 +96,24 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        setEmpresas(empresasList)
+        // Check if selected empresa is active
+        const activeEmpresas = empresasList.filter(e => e.activa)
+
+        // Platform admins can access all, regular users only active ones
+        const availableEmpresas = platformCheck ? empresasList : activeEmpresas
+
+        if (availableEmpresas.length === 0) {
+          setError('Tu cuenta de empresa está suspendida. Contacta al administrador para reactivarla.')
+          setLoading(false)
+          return
+        }
+
+        setEmpresas(availableEmpresas)
 
         // Check saved cookie
         const savedId = getCookie('empresa_id')
-        const validSaved = savedId && empresasList.some((e) => e.id === savedId)
-        const selectedId = validSaved ? savedId! : empresasList[0].id
+        const validSaved = savedId && availableEmpresas.some((e) => e.id === savedId)
+        const selectedId = validSaved ? savedId! : availableEmpresas[0].id
 
         setEmpresaId(selectedId)
         setCookie('empresa_id', selectedId)
@@ -112,7 +138,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <EmpresaContext.Provider value={{ empresaId, empresas, userRole, loading, error, setEmpresa }}>
+    <EmpresaContext.Provider value={{ empresaId, empresas, userRole, isPlatformAdmin, loading, error, setEmpresa }}>
       {children}
     </EmpresaContext.Provider>
   )

@@ -18,6 +18,7 @@ import {
   X,
   Settings,
   UserCog,
+  Shield,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -39,6 +40,10 @@ const NAV_ITEMS = [
 const ADMIN_NAV_ITEMS = [
   { href: '/empresas', label: 'Empresas', icon: Settings },
   { href: '/usuarios', label: 'Usuarios', icon: UserCog },
+]
+
+const PLATFORM_NAV_ITEMS = [
+  { href: '/plataforma', label: 'Plataforma', icon: Shield },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -78,7 +83,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
-  const { userRole, loading: empresaLoading, error: empresaError } = useEmpresa()
+  const { userRole, isPlatformAdmin, loading: empresaLoading, error: empresaError } = useEmpresa()
 
   async function handleLogout() {
     const supabase = createClient()
@@ -109,9 +114,11 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const allNavItems = userRole === 'admin'
-    ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS]
-    : NAV_ITEMS
+  const allNavItems = [
+    ...NAV_ITEMS,
+    ...(userRole === 'admin' ? ADMIN_NAV_ITEMS : []),
+    ...(isPlatformAdmin ? PLATFORM_NAV_ITEMS : []),
+  ]
 
   return (
     <div className="flex h-screen overflow-hidden">

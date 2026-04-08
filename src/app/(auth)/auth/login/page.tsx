@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -65,6 +66,12 @@ export default function AdminLogin() {
               <LogIn className="h-4 w-4 mr-2" />
               {loading ? 'Ingresando...' : 'Ingresar'}
             </Button>
+            <p className="text-center text-sm text-muted-foreground pt-2">
+              ¿No tienes cuenta?{' '}
+              <Link href="/crear-cuenta" className="text-primary hover:underline font-medium">
+                Crear cuenta
+              </Link>
+            </p>
           </form>
         </CardContent>
       </Card>
