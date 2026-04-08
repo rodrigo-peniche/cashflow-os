@@ -54,8 +54,8 @@ export const TEMPLATES: Record<string, ExcelTemplate> = {
     sheetName: 'Facturas',
     tableName: 'facturas',
     columns: [
-      { header: 'ID Proveedor', key: '_id_banco', example: 'PROV016', required: true },
-      { header: 'Proveedor', key: '_proveedor_nombre', example: 'NEGOCIOS PECA' },
+      { header: 'ID Proveedor', key: '_id_banco', example: 'PROV016' },
+      { header: 'Proveedor', key: '_proveedor_nombre', example: 'NEGOCIOS PECA', required: true },
       { header: 'Número Factura', key: 'numero_factura', example: 'FAC-001' },
       { header: 'Importe', key: '_importe', example: '10000.00', required: true },
       { header: 'Fecha Recibida', key: '_fecha_recibida', example: '06/04/2026' },
