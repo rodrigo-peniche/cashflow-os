@@ -288,18 +288,15 @@ export default function FacturasPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8"></TableHead>
                   <SortableHeader label="# Factura" column="numero_factura" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Proveedor" column="proveedor" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <TableHead>OC</TableHead>
                   <SortableHeader label="Fecha" column="fecha_factura" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Vencimiento" column="fecha_vencimiento" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Situación" column="situacion" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Total" column="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
-                  <TableHead>IVA</TableHead>
                   <SortableHeader label="Estatus" column="estatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <TableHead>Pago prog.</TableHead>
-                  <TableHead>Docs</TableHead>
-                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -308,7 +305,13 @@ export default function FacturasPage() {
                   const provNombre = getProveedorNombre(f)
                   return (
                     <React.Fragment key={f.id}>
-                      <TableRow className={isExpanded ? 'border-b-0' : ''}>
+                      <TableRow
+                        className={`cursor-pointer hover:bg-muted/50 ${isExpanded ? 'border-b-0 bg-muted/30' : ''}`}
+                        onClick={() => setExpandedId(isExpanded ? null : f.id)}
+                      >
+                        <TableCell className="w-8 pr-0">
+                          {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                        </TableCell>
                         <TableCell className="font-medium">{f.numero_factura}</TableCell>
                         <TableCell>
                           {provNombre ? (
@@ -317,7 +320,6 @@ export default function FacturasPage() {
                             <span className="text-orange-600 text-sm">Sin proveedor</span>
                           )}
                         </TableCell>
-                        <TableCell>{(f as unknown as Record<string, Record<string, string>>).ordenes_compra?.numero_oc || '—'}</TableCell>
                         <TableCell>{format(new Date(f.fecha_factura + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
                         <TableCell>
                           {f.fecha_vencimiento ? format(new Date(f.fecha_vencimiento + 'T12:00:00'), 'dd/MM/yy') : '—'}
@@ -331,73 +333,19 @@ export default function FacturasPage() {
                         </TableCell>
                         <TableCell className="text-right font-medium">{formatMXN(f.total)}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{f.tipo_iva === '16' ? '16%' : f.tipo_iva === '0' ? '0%' : 'Exento'}</Badge>
+                          <Badge variant="outline" className={STATUS_COLORS[f.estatus]}>
+                            {f.estatus.charAt(0).toUpperCase() + f.estatus.slice(1)}
+                          </Badge>
                         </TableCell>
                         <TableCell>
-                          {userRole === 'viewer' ? (
-                            <Badge variant="outline" className={STATUS_COLORS[f.estatus]}>
-                              {f.estatus.charAt(0).toUpperCase() + f.estatus.slice(1)}
-                            </Badge>
-                          ) : (
-                            <Select value={f.estatus} onValueChange={(v) => updateEstatus(f.id, v)}>
-                              <SelectTrigger className="w-[130px] h-8">
-                                <Badge variant="outline" className={STATUS_COLORS[f.estatus]}>
-                                  {f.estatus.charAt(0).toUpperCase() + f.estatus.slice(1)}
-                                </Badge>
-                              </SelectTrigger>
-                              <SelectContent>
-                                {STATUSES.map((s) => (
-                                  <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {f.estatus === 'programada' || f.estatus === 'aprobada' ? (
-                            <Input
-                              type="date"
-                              className="w-[140px] h-8"
-                              value={f.fecha_programada_pago || ''}
-                              onChange={(e) => setPaymentDate(f.id, e.target.value)}
-                              disabled={userRole === 'viewer'}
-                            />
-                          ) : f.fecha_programada_pago ? (
-                            format(new Date(f.fecha_programada_pago + 'T12:00:00'), 'dd/MM/yy')
-                          ) : '—'}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            {f.pdf_url && (
-                              <a href={f.pdf_url} target="_blank" rel="noopener noreferrer">
-                                <Badge variant="outline" className="cursor-pointer hover:bg-muted">PDF</Badge>
-                              </a>
-                            )}
-                            {f.xml_url && (
-                              <a href={f.xml_url} target="_blank" rel="noopener noreferrer">
-                                <Badge variant="outline" className="cursor-pointer hover:bg-muted">XML</Badge>
-                              </a>
-                            )}
-                            {f.comprobante_pago_url && (
-                              <a href={f.comprobante_pago_url} target="_blank" rel="noopener noreferrer">
-                                <Badge variant="outline" className="cursor-pointer hover:bg-muted bg-green-50 text-green-700">Comp.</Badge>
-                              </a>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setExpandedId(isExpanded ? null : f.id)}
-                          >
-                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                          </Button>
+                          {f.fecha_programada_pago
+                            ? format(new Date(f.fecha_programada_pago + 'T12:00:00'), 'dd/MM/yy')
+                            : '—'}
                         </TableCell>
                       </TableRow>
                       {isExpanded && (
                         <TableRow>
-                          <TableCell colSpan={12} className="bg-muted/30 p-4">
+                          <TableCell colSpan={9} className="bg-muted/30 p-4" onClick={(e) => e.stopPropagation()}>
                             <FacturaDetailPanel
                               factura={f}
                               proveedores={proveedores}
@@ -416,7 +364,7 @@ export default function FacturasPage() {
                   )
                 })}
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={12} className="text-center text-muted-foreground py-8">No hay facturas</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No hay facturas</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -501,7 +449,61 @@ function FacturaDetailPanel({
 
   return (
     <div className="space-y-5">
-      {/* Observaciones - always visible at top */}
+      {/* Quick info bar */}
+      <div className="flex flex-wrap gap-4 text-sm">
+        <div>
+          <span className="text-muted-foreground">IVA:</span>{' '}
+          <Badge variant="outline">{factura.tipo_iva === '16' ? '16%' : factura.tipo_iva === '0' ? '0%' : 'Exento'}</Badge>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Subtotal:</span> {formatMXN(factura.subtotal)}
+        </div>
+        {factura.monto_iva > 0 && (
+          <div><span className="text-muted-foreground">IVA:</span> {formatMXN(factura.monto_iva)}</div>
+        )}
+        {(factura as unknown as Record<string, Record<string, string>>).ordenes_compra?.numero_oc && (
+          <div>
+            <span className="text-muted-foreground">OC:</span>{' '}
+            {(factura as unknown as Record<string, Record<string, string>>).ordenes_compra?.numero_oc}
+          </div>
+        )}
+        <div className="flex gap-1">
+          {factura.pdf_url && (
+            <a href={factura.pdf_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+              <Badge variant="outline" className="cursor-pointer hover:bg-muted">PDF</Badge>
+            </a>
+          )}
+          {factura.xml_url && (
+            <a href={factura.xml_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+              <Badge variant="outline" className="cursor-pointer hover:bg-muted">XML</Badge>
+            </a>
+          )}
+          {factura.comprobante_pago_url && (
+            <a href={factura.comprobante_pago_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+              <Badge variant="outline" className="cursor-pointer hover:bg-muted bg-green-50 text-green-700">Comp.</Badge>
+            </a>
+          )}
+        </div>
+        {/* Estatus changer */}
+        {userRole !== 'viewer' && (
+          <div className="ml-auto">
+            <Select value={factura.estatus} onValueChange={(v) => onUpdateEstatus(factura.id, v)}>
+              <SelectTrigger className="w-[140px] h-8">
+                <Badge variant="outline" className={STATUS_COLORS[factura.estatus]}>
+                  {factura.estatus.charAt(0).toUpperCase() + factura.estatus.slice(1)}
+                </Badge>
+              </SelectTrigger>
+              <SelectContent>
+                {STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      {/* Observaciones - always visible */}
       {factura.observaciones && (
         <div className="p-3 rounded-md bg-blue-50 border border-blue-200">
           <p className="text-sm font-medium text-blue-800 flex items-center gap-2 mb-1">
