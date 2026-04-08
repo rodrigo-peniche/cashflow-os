@@ -19,6 +19,8 @@ import type { OrdenCompra } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { FileText, Plus } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { useTableSort } from '@/lib/hooks/use-table-sort'
+import { SortableHeader } from '@/components/shared/sortable-header'
 
 const STATUS_COLORS: Record<string, string> = {
   abierta: 'bg-blue-100 text-blue-800',
@@ -77,6 +79,16 @@ export default function OrdenesPage() {
     await supabase.from('ordenes_compra').update({ estatus }).eq('id', id)
     loadData()
   }
+
+  const { sortKey, sortDir, handleSort, sortData } = useTableSort(ordenes)
+
+  const sorted = sortData({
+    numero_oc: (o) => o.numero_oc,
+    proveedor: (o) => (o as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || '',
+    monto_total: (o) => o.monto_total,
+    fecha_emision: (o) => o.fecha_emision,
+    estatus: (o) => o.estatus,
+  })
 
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
 
@@ -142,16 +154,16 @@ export default function OrdenesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead># OC</TableHead>
-                <TableHead>Proveedor</TableHead>
+                <SortableHeader label="# OC" column="numero_oc" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Proveedor" column="proveedor" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <TableHead>Descripción</TableHead>
-                <TableHead className="text-right">Monto</TableHead>
-                <TableHead>Emisión</TableHead>
-                <TableHead>Estatus</TableHead>
+                <SortableHeader label="Monto" column="monto_total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Emisión" column="fecha_emision" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Estatus" column="estatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {ordenes.map((o) => (
+              {sorted.map((o) => (
                 <TableRow key={o.id}>
                   <TableCell className="font-medium">{o.numero_oc}</TableCell>
                   <TableCell>{(o as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || '—'}</TableCell>

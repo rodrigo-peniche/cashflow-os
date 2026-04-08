@@ -11,14 +11,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatMXN } from '@/lib/constants'
 import { toast } from 'sonner'
 import { addDays, format, differenceInDays } from 'date-fns'
-import type { Factura } from '@/lib/types'
+import type { Factura, Proveedor } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { FileUpload } from '@/components/shared/file-upload'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare } from 'lucide-react'
+import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus } from 'lucide-react'
+import { SortableHeader } from '@/components/shared/sortable-header'
 
 const STATUS_COLORS: Record<string, string> = {
   pendiente: 'bg-yellow-100 text-yellow-800',
@@ -47,37 +48,60 @@ interface FacturaExtended extends Factura {
   observaciones?: string | null
 }
 
+function getProveedorNombre(f: FacturaExtended): string {
+  return (f as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || ''
+}
+
+function getSituacionOrder(f: FacturaExtended): number {
+  const status = getVencimientoStatus(f.fecha_vencimiento, f.estatus)
+  if (!status) return 99
+  if (status.label.startsWith('Vencida')) return 0
+  if (status.label === 'Vence hoy') return 1
+  if (status.label.startsWith('Vence en')) return 2
+  return 3
+}
+
 export default function FacturasPage() {
   const [facturas, setFacturas] = useState<FacturaExtended[]>([])
+  const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('todos')
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const { empresaId, userRole } = useEmpresa()
 
   const loadData = useCallback(async () => {
     if (!empresaId) return
     const supabase = createClient()
-    const { data } = await supabase
-      .from('facturas')
-      .select('*, proveedores(nombre_empresa), ordenes_compra(numero_oc)')
-      .eq('empresa_id', empresaId)
-      .order('created_at', { ascending: false })
-    setFacturas(data || [])
+    const [facturasRes, provsRes] = await Promise.all([
+      supabase.from('facturas').select('*, proveedores(nombre_empresa), ordenes_compra(numero_oc)').eq('empresa_id', empresaId).order('created_at', { ascending: false }),
+      supabase.from('proveedores').select('*').eq('empresa_id', empresaId).eq('activo', true).order('nombre_empresa'),
+    ])
+    setFacturas(facturasRes.data || [])
+    setProveedores(provsRes.data || [])
     setLoading(false)
   }, [empresaId])
 
   useEffect(() => { loadData() }, [loadData])
 
+  function handleSort(key: string) {
+    if (sortKey === key) {
+      if (sortDir === 'asc') setSortDir('desc')
+      else { setSortKey(null); setSortDir('asc') }
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
   async function updateEstatus(id: string, estatus: string) {
     const supabase = createClient()
     const updates: Record<string, unknown> = { estatus }
     if (estatus === 'programada') {
-      // Auto-set scheduled payment date to due date
       const factura = facturas.find(f => f.id === id)
-      if (factura?.fecha_vencimiento) {
-        updates.fecha_programada_pago = factura.fecha_vencimiento
-      }
+      if (factura?.fecha_vencimiento) updates.fecha_programada_pago = factura.fecha_vencimiento
     }
     const { error } = await supabase.from('facturas').update(updates).eq('id', id)
     if (error) { toast.error(error.message); return }
@@ -107,12 +131,39 @@ export default function FacturasPage() {
     loadData()
   }
 
-  const filtered = facturas.filter((f) => {
+  async function assignProveedor(facturaId: string, proveedorId: string) {
+    const supabase = createClient()
+    const { error } = await supabase.from('facturas').update({ proveedor_id: proveedorId }).eq('id', facturaId)
+    if (error) { toast.error(error.message); return }
+    toast.success('Proveedor asignado')
+    loadData()
+  }
+
+  let filtered = facturas.filter((f) => {
     if (filterStatus !== 'todos' && f.estatus !== filterStatus) return false
-    if (search && !f.numero_factura.toLowerCase().includes(search.toLowerCase()) &&
-        !(f as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa?.toLowerCase().includes(search.toLowerCase())) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!f.numero_factura.toLowerCase().includes(q) && !getProveedorNombre(f).toLowerCase().includes(q)) return false
+    }
     return true
   })
+
+  // Apply sorting
+  if (sortKey) {
+    filtered = [...filtered].sort((a, b) => {
+      let cmp = 0
+      switch (sortKey) {
+        case 'numero_factura': cmp = a.numero_factura.localeCompare(b.numero_factura); break
+        case 'proveedor': cmp = getProveedorNombre(a).localeCompare(getProveedorNombre(b)); break
+        case 'fecha_factura': cmp = a.fecha_factura.localeCompare(b.fecha_factura); break
+        case 'fecha_vencimiento': cmp = (a.fecha_vencimiento || '').localeCompare(b.fecha_vencimiento || ''); break
+        case 'total': cmp = a.total - b.total; break
+        case 'estatus': cmp = a.estatus.localeCompare(b.estatus); break
+        case 'situacion': cmp = getSituacionOrder(a) - getSituacionOrder(b); break
+      }
+      return sortDir === 'desc' ? -cmp : cmp
+    })
+  }
 
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
 
@@ -128,34 +179,27 @@ export default function FacturasPage() {
             transformRows={async (rows) => {
               const supabase = createClient()
               const { data: provs } = await supabase.from('proveedores').select('id, id_banco, nombre_empresa').eq('empresa_id', empresaId!)
-              // Map by id_banco and by nombre
               const idBancoMap = new Map((provs || []).filter(p => p.id_banco).map((p) => [p.id_banco!.toUpperCase(), p.id]))
               const nombreMap = new Map((provs || []).map((p) => [p.nombre_empresa.toUpperCase(), p.id]))
 
               return rows.map((row, idx) => {
-                // Resolve proveedor by id_banco first, then by nombre
                 const idBanco = String(row._id_banco || '').toUpperCase().trim()
                 const nombre = String(row._proveedor_nombre || '').toUpperCase().trim()
                 const proveedorId = idBancoMap.get(idBanco) || nombreMap.get(nombre) || null
 
                 const importe = Number(row._importe) || 0
 
-                // Parse dates - handle DD/MM/YYYY, YYYY-MM-DD, or Excel serial numbers
                 function parseDate(val: unknown): string | null {
                   if (!val) return null
                   const s = String(val).trim()
                   if (!s) return null
-                  // Excel serial number
                   if (/^\d{5}$/.test(s)) {
                     const d = new Date((Number(s) - 25569) * 86400 * 1000)
                     return format(d, 'yyyy-MM-dd')
                   }
-                  // DD/MM/YYYY
                   const ddmm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
                   if (ddmm) return `${ddmm[3]}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`
-                  // YYYY-MM-DD already
                   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-                  // Try native parse
                   const d = new Date(s)
                   if (!isNaN(d.getTime())) return format(d, 'yyyy-MM-dd')
                   return null
@@ -168,7 +212,6 @@ export default function FacturasPage() {
                   fechaVenc = format(addDays(new Date(fechaFactura), diasCredito), 'yyyy-MM-dd')
                 }
 
-                // Determine estatus from confirmacion/importe_pagado
                 const confirmacion = String(row._confirmacion || '').toUpperCase().trim()
                 const importePagado = Number(row._importe_pagado) || 0
                 const fechaPago = parseDate(row._fecha_pago)
@@ -177,7 +220,13 @@ export default function FacturasPage() {
                 else if (fechaPago) estatus = 'programada'
                 else if (confirmacion === 'JUE' || confirmacion.includes('CONFIRM') || confirmacion.includes('SI')) estatus = 'aprobada'
 
-                const observaciones = String(row._observaciones || '').trim() || null
+                // If proveedor not found, save the name in observaciones
+                const excelObs = String(row._observaciones || '').trim()
+                let observaciones = excelObs || null
+                if (!proveedorId && nombre) {
+                  const provNote = `[Proveedor Excel: ${String(row._proveedor_nombre || '').trim()}]`
+                  observaciones = observaciones ? `${provNote} ${observaciones}` : provNote
+                }
 
                 return {
                   empresa_id: empresaId,
@@ -222,15 +271,15 @@ export default function FacturasPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead># Factura</TableHead>
-                  <TableHead>Proveedor</TableHead>
+                  <SortableHeader label="# Factura" column="numero_factura" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Proveedor" column="proveedor" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <TableHead>OC</TableHead>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Vencimiento</TableHead>
-                  <TableHead>Situación</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <SortableHeader label="Fecha" column="fecha_factura" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Vencimiento" column="fecha_vencimiento" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Situación" column="situacion" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Total" column="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
                   <TableHead>IVA</TableHead>
-                  <TableHead>Estatus</TableHead>
+                  <SortableHeader label="Estatus" column="estatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <TableHead>Pago prog.</TableHead>
                   <TableHead>Docs</TableHead>
                   <TableHead></TableHead>
@@ -239,11 +288,18 @@ export default function FacturasPage() {
               <TableBody>
                 {filtered.map((f) => {
                   const isExpanded = expandedId === f.id
+                  const provNombre = getProveedorNombre(f)
                   return (
                     <React.Fragment key={f.id}>
                       <TableRow className={isExpanded ? 'border-b-0' : ''}>
                         <TableCell className="font-medium">{f.numero_factura}</TableCell>
-                        <TableCell>{(f as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || '—'}</TableCell>
+                        <TableCell>
+                          {provNombre ? (
+                            provNombre
+                          ) : (
+                            <span className="text-orange-600 text-sm">Sin proveedor</span>
+                          )}
+                        </TableCell>
                         <TableCell>{(f as unknown as Record<string, Record<string, string>>).ordenes_compra?.numero_oc || '—'}</TableCell>
                         <TableCell>{format(new Date(f.fecha_factura + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
                         <TableCell>
@@ -313,21 +369,27 @@ export default function FacturasPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {userRole !== 'viewer' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setExpandedId(isExpanded ? null : f.id)}
-                            >
-                              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setExpandedId(isExpanded ? null : f.id)}
+                          >
+                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </Button>
                         </TableCell>
                       </TableRow>
-                      {isExpanded && userRole !== 'viewer' && (
+                      {isExpanded && (
                         <TableRow>
                           <TableCell colSpan={12} className="bg-muted/30 p-4">
-                            <FacturaDetailPanel factura={f} onSaveObservaciones={saveObservaciones} onSaveComprobante={saveComprobante} />
+                            <FacturaDetailPanel
+                              factura={f}
+                              proveedores={proveedores}
+                              userRole={userRole}
+                              onSaveObservaciones={saveObservaciones}
+                              onSaveComprobante={saveComprobante}
+                              onAssignProveedor={assignProveedor}
+                              onReload={loadData}
+                            />
                           </TableCell>
                         </TableRow>
                       )}
@@ -348,43 +410,131 @@ export default function FacturasPage() {
 
 function FacturaDetailPanel({
   factura,
+  proveedores,
+  userRole,
   onSaveObservaciones,
   onSaveComprobante,
+  onAssignProveedor,
+  onReload,
 }: {
   factura: FacturaExtended
+  proveedores: Proveedor[]
+  userRole: string | null
   onSaveObservaciones: (id: string, obs: string) => void
   onSaveComprobante: (id: string, url: string) => void
+  onAssignProveedor: (facturaId: string, proveedorId: string) => void
+  onReload: () => void
 }) {
+  const { empresaId } = useEmpresa()
   const [obs, setObs] = useState(factura.observaciones || '')
+  const [showNewProv, setShowNewProv] = useState(false)
+  const [newProvNombre, setNewProvNombre] = useState('')
+  const [newProvRfc, setNewProvRfc] = useState('')
+  const [creatingProv, setCreatingProv] = useState(false)
+
+  async function handleCreateProveedor() {
+    if (!newProvNombre.trim() || !newProvRfc.trim()) {
+      toast.error('Nombre y RFC son requeridos')
+      return
+    }
+    setCreatingProv(true)
+    const supabase = createClient()
+    const { data, error } = await supabase.from('proveedores').insert({
+      empresa_id: empresaId,
+      nombre_empresa: newProvNombre.trim(),
+      rfc: newProvRfc.trim().toUpperCase(),
+      contacto_nombre: '',
+      contacto_email: '',
+      banco: '',
+      clabe: '',
+    }).select('id').single()
+    if (error) { toast.error(error.message); setCreatingProv(false); return }
+    if (data) {
+      await onAssignProveedor(factura.id, data.id)
+      toast.success('Proveedor creado y asignado')
+      setShowNewProv(false)
+      setNewProvNombre('')
+      setNewProvRfc('')
+      onReload()
+    }
+    setCreatingProv(false)
+  }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div className="space-y-3">
-        <Label className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4" /> Observaciones para el proveedor
-        </Label>
-        <Textarea
-          value={obs}
-          onChange={(e) => setObs(e.target.value)}
-          placeholder="Escribir observaciones visibles para el proveedor..."
-          rows={3}
-        />
-        <Button size="sm" onClick={() => onSaveObservaciones(factura.id, obs)}>
-          Guardar observaciones
-        </Button>
-      </div>
-      <div className="space-y-3">
-        <Label className="flex items-center gap-2">
-          <Upload className="h-4 w-4" /> Comprobante de pago
-        </Label>
-        <FileUpload
-          bucket="comprobantes-pago"
-          folder={factura.proveedor_id}
-          accept=".pdf,.png,.jpg,.jpeg"
-          label="Subir comprobante de pago"
-          value={factura.comprobante_pago_url}
-          onUpload={(url) => onSaveComprobante(factura.id, url)}
-        />
+    <div className="space-y-6">
+      {/* Proveedor assignment */}
+      {!factura.proveedor_id && userRole !== 'viewer' && (
+        <div className="p-3 rounded-md border border-orange-200 bg-orange-50 space-y-3">
+          <Label className="flex items-center gap-2 text-orange-800">
+            <UserPlus className="h-4 w-4" /> Asignar proveedor
+          </Label>
+          {factura.observaciones?.includes('[Proveedor Excel:') && (
+            <p className="text-sm text-orange-700">
+              Del Excel: <strong>{factura.observaciones.match(/\[Proveedor Excel: (.+?)\]/)?.[1]}</strong>
+            </p>
+          )}
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <Select onValueChange={(v) => onAssignProveedor(factura.id, v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar proveedor existente..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {proveedores.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.nombre_empresa} ({p.rfc})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setShowNewProv(!showNewProv)}>
+              <UserPlus className="h-4 w-4 mr-1" /> Crear nuevo
+            </Button>
+          </div>
+          {showNewProv && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2">
+              <Input placeholder="Nombre empresa *" value={newProvNombre} onChange={(e) => setNewProvNombre(e.target.value)} />
+              <Input placeholder="RFC *" value={newProvRfc} onChange={(e) => setNewProvRfc(e.target.value)} className="uppercase" />
+              <Button onClick={handleCreateProveedor} disabled={creatingProv}>
+                {creatingProv ? 'Creando...' : 'Crear y asignar'}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-3">
+          <Label className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" /> Observaciones
+          </Label>
+          <Textarea
+            value={obs}
+            onChange={(e) => setObs(e.target.value)}
+            placeholder="Escribir observaciones..."
+            rows={3}
+            disabled={userRole === 'viewer'}
+          />
+          {userRole !== 'viewer' && (
+            <Button size="sm" onClick={() => onSaveObservaciones(factura.id, obs)}>
+              Guardar observaciones
+            </Button>
+          )}
+        </div>
+        {userRole !== 'viewer' && (
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2">
+              <Upload className="h-4 w-4" /> Comprobante de pago
+            </Label>
+            <FileUpload
+              bucket="comprobantes-pago"
+              folder={factura.proveedor_id}
+              accept=".pdf,.png,.jpg,.jpeg"
+              label="Subir comprobante de pago"
+              value={factura.comprobante_pago_url}
+              onUpload={(url) => onSaveComprobante(factura.id, url)}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

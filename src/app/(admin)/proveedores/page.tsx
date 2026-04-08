@@ -17,6 +17,8 @@ import type { Proveedor, ModalidadPago } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { Users, Plus, Copy, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { useTableSort } from '@/lib/hooks/use-table-sort'
+import { SortableHeader } from '@/components/shared/sortable-header'
 
 const TIPOS_CUENTA = [
   'Debito CLABE OB',
@@ -119,6 +121,18 @@ export default function ProveedoresPage() {
     p.rfc.toLowerCase().includes(search.toLowerCase()) ||
     (p.id_banco || '').toLowerCase().includes(search.toLowerCase())
   )
+
+  const { sortKey, sortDir, handleSort, sortData } = useTableSort(filtered)
+  const sorted = sortData({
+    id_banco: (p) => p.id_banco || '',
+    nombre_empresa: (p) => p.nombre_empresa,
+    rfc: (p) => p.rfc,
+    contacto: (p) => p.contacto_nombre,
+    banco: (p) => p.banco,
+    dias_credito: (p) => p.dias_credito,
+    modalidad_pago: (p) => p.modalidad_pago,
+    activo: (p) => p.activo ? 0 : 1,
+  })
 
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
 
@@ -231,20 +245,20 @@ export default function ProveedoresPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>RFC</TableHead>
-                  <TableHead>Contacto</TableHead>
-                  <TableHead>Banco</TableHead>
-                  <TableHead>Crédito</TableHead>
-                  <TableHead>Modalidad</TableHead>
-                  <TableHead>Estado</TableHead>
+                  <SortableHeader label="ID" column="id_banco" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Empresa" column="nombre_empresa" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="RFC" column="rfc" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Contacto" column="contacto" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Banco" column="banco" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Crédito" column="dias_credito" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Modalidad" column="modalidad_pago" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Estado" column="activo" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <TableHead>Portal</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((p) => {
+                {sorted.map((p) => {
                   const isExpanded = expandedId === p.id
                   return (
                     <>
@@ -333,7 +347,7 @@ export default function ProveedoresPage() {
                     </>
                   )
                 })}
-                {filtered.length === 0 && (
+                {sorted.length === 0 && (
                   <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No hay proveedores</TableCell></TableRow>
                 )}
               </TableBody>

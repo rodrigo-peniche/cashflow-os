@@ -22,6 +22,8 @@ import type { FlujoTentativo } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { TrendingUpDown, Plus, Trash2 } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { useTableSort } from '@/lib/hooks/use-table-sort'
+import { SortableHeader } from '@/components/shared/sortable-header'
 
 export default function FlujosPage() {
   const { empresaId, userRole } = useEmpresa()
@@ -81,7 +83,17 @@ export default function FlujosPage() {
     loadData()
   }
 
+  const { sortKey, sortDir, handleSort, sortData } = useTableSort(flujos)
+
   if (loading) return <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-64" /></div>
+
+  const sorted = sortData({
+    fecha: (f) => f.fecha,
+    tipo: (f) => f.tipo,
+    descripcion: (f) => f.descripcion,
+    monto: (f) => f.monto,
+    probabilidad: (f) => f.probabilidad,
+  })
 
   return (
     <div className="space-y-6">
@@ -192,17 +204,17 @@ export default function FlujosPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Descripción</TableHead>
-                <TableHead className="text-right">Monto</TableHead>
-                <TableHead className="text-center">Prob.</TableHead>
+                <SortableHeader column="fecha" label="Fecha" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader column="tipo" label="Tipo" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader column="descripcion" label="Descripción" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader column="monto" label="Monto" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader column="probabilidad" label="Prob." sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-center" />
                 <TableHead>Realizado</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {flujos.map((f) => {
+              {sorted.map((f) => {
                 const flowType = f.tipo === 'ingreso'
                   ? f.probabilidad === 100 ? 'ingreso_real' : 'ingreso_estimado'
                   : f.probabilidad === 100 ? 'egreso_real' : 'egreso_estimado'

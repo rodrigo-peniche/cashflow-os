@@ -21,6 +21,8 @@ import type { PagoProgramado } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { CalendarClock, Plus, Trash2 } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { useTableSort } from '@/lib/hooks/use-table-sort'
+import { SortableHeader } from '@/components/shared/sortable-header'
 
 export default function PagosProgramadosPage() {
   const { empresaId, userRole } = useEmpresa()
@@ -99,7 +101,17 @@ export default function PagosProgramadosPage() {
     otro: 'bg-gray-100 text-gray-800',
   }
 
+  const { sortKey, sortDir, handleSort, sortData } = useTableSort(pagos)
+
   if (loading) return <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-64" /></div>
+
+  const sorted = sortData({
+    nombre: (p) => p.nombre,
+    categoria: (p) => p.categoria,
+    frecuencia: (p) => p.frecuencia,
+    monto: (p) => p.monto || 0,
+    proxima_fecha: (p) => p.proxima_fecha,
+  })
 
   return (
     <div className="space-y-6">
@@ -225,17 +237,17 @@ export default function PagosProgramadosPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Categoría</TableHead>
-                <TableHead>Frecuencia</TableHead>
-                <TableHead className="text-right">Monto</TableHead>
-                <TableHead>Próxima fecha</TableHead>
+                <SortableHeader label="Nombre" column="nombre" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Categoría" column="categoria" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Frecuencia" column="frecuencia" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Monto" column="monto" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
+                <SortableHeader label="Próxima fecha" column="proxima_fecha" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <TableHead>Cuenta</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pagos.map((p) => (
+              {sorted.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="font-medium">{p.nombre}</TableCell>
                   <TableCell>
