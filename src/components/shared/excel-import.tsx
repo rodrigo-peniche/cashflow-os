@@ -109,6 +109,13 @@ export function ExcelImport({ templateKey, onSuccess, empresaId, transformRows }
           } else if (k === 'dias_credito' || k === 'dia_del_mes') {
             const num = Number(v)
             converted[k] = isNaN(num) ? 0 : num
+          } else if (k === 'modalidad_pago') {
+            const val = String(v || '').toLowerCase().trim()
+            if (val.includes('sin factura') || val.includes('pago_primero') || val.includes('pago primero')) {
+              converted[k] = 'pago_primero'
+            } else {
+              converted[k] = 'factura_primero'
+            }
           } else {
             converted[k] = v
           }
