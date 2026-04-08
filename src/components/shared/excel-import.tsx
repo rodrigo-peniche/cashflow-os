@@ -127,10 +127,12 @@ export function ExcelImport({ templateKey, onSuccess, empresaId, transformRows }
       const errors: string[] = []
       let success = 0
 
-      // Insert in batches of 50
+      // Insert/upsert in batches of 50
       for (let i = 0; i < cleanRows.length; i += 50) {
         const batch = cleanRows.slice(i, i + 50)
-        const { error } = await supabase.from(template.tableName).insert(batch)
+        const { error } = template.onConflict
+          ? await supabase.from(template.tableName).upsert(batch, { onConflict: template.onConflict })
+          : await supabase.from(template.tableName).insert(batch)
         if (error) {
           errors.push(`Lote ${Math.floor(i / 50) + 1}: ${error.message}`)
         } else {

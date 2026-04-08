@@ -123,35 +123,77 @@ export default function FacturasPage() {
         {userRole !== 'viewer' && (
           <ExcelImport
             templateKey="facturas"
+            empresaId={empresaId}
             onSuccess={loadData}
             transformRows={async (rows) => {
               const supabase = createClient()
-              const { data: provs } = await supabase.from('proveedores').select('id, rfc').eq('empresa_id', empresaId!)
-              const { data: ocs } = await supabase.from('ordenes_compra').select('id, numero_oc').eq('empresa_id', empresaId!)
-              const rfcMap = new Map((provs || []).map((p) => [p.rfc.toUpperCase(), p.id]))
-              const ocMap = new Map((ocs || []).map((o) => [o.numero_oc.toUpperCase(), o.id]))
-              return rows.map((row) => {
-                const rfc = String(row._rfc_proveedor || '').toUpperCase()
-                const oc = String(row._numero_oc || '').toUpperCase()
-                const subtotal = Number(row.subtotal) || 0
-                const tipoIva = String(row.tipo_iva || '16')
-                const montoIva = tipoIva === '16' ? subtotal * 0.16 : 0
-                const diasCredito = Number(row.dias_credito) || 30
-                const fechaFactura = String(row.fecha_factura)
-                const fechaVenc = format(addDays(new Date(fechaFactura), diasCredito), 'yyyy-MM-dd')
+              const { data: provs } = await supabase.from('proveedores').select('id, id_banco, nombre_empresa').eq('empresa_id', empresaId!)
+              // Map by id_banco and by nombre
+              const idBancoMap = new Map((provs || []).filter(p => p.id_banco).map((p) => [p.id_banco!.toUpperCase(), p.id]))
+              const nombreMap = new Map((provs || []).map((p) => [p.nombre_empresa.toUpperCase(), p.id]))
+
+              return rows.map((row, idx) => {
+                // Resolve proveedor by id_banco first, then by nombre
+                const idBanco = String(row._id_banco || '').toUpperCase().trim()
+                const nombre = String(row._proveedor_nombre || '').toUpperCase().trim()
+                const proveedorId = idBancoMap.get(idBanco) || nombreMap.get(nombre) || null
+
+                const importe = Number(row._importe) || 0
+
+                // Parse dates - handle DD/MM/YYYY, YYYY-MM-DD, or Excel serial numbers
+                function parseDate(val: unknown): string | null {
+                  if (!val) return null
+                  const s = String(val).trim()
+                  if (!s) return null
+                  // Excel serial number
+                  if (/^\d{5}$/.test(s)) {
+                    const d = new Date((Number(s) - 25569) * 86400 * 1000)
+                    return format(d, 'yyyy-MM-dd')
+                  }
+                  // DD/MM/YYYY
+                  const ddmm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+                  if (ddmm) return `${ddmm[3]}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`
+                  // YYYY-MM-DD already
+                  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+                  // Try native parse
+                  const d = new Date(s)
+                  if (!isNaN(d.getTime())) return format(d, 'yyyy-MM-dd')
+                  return null
+                }
+
+                const fechaFactura = parseDate(row._fecha_recibida) || format(new Date(), 'yyyy-MM-dd')
+                const diasCredito = Number(row._dias_credito) || 0
+                let fechaVenc = parseDate(row._fecha_vencimiento)
+                if (!fechaVenc && diasCredito > 0) {
+                  fechaVenc = format(addDays(new Date(fechaFactura), diasCredito), 'yyyy-MM-dd')
+                }
+
+                // Determine estatus from confirmacion/importe_pagado
+                const confirmacion = String(row._confirmacion || '').toUpperCase().trim()
+                const importePagado = Number(row._importe_pagado) || 0
+                const fechaPago = parseDate(row._fecha_pago)
+                let estatus = 'pendiente'
+                if (importePagado >= importe && importe > 0) estatus = 'pagada'
+                else if (fechaPago) estatus = 'programada'
+                else if (confirmacion === 'JUE' || confirmacion.includes('CONFIRM') || confirmacion.includes('SI')) estatus = 'aprobada'
+
+                const observaciones = String(row._observaciones || '').trim() || null
+
                 return {
                   empresa_id: empresaId,
-                  numero_factura: row.numero_factura,
-                  proveedor_id: rfcMap.get(rfc) || null,
-                  orden_compra_id: ocMap.get(oc) || null,
+                  numero_factura: row.numero_factura || `IMP-${idx + 1}`,
+                  proveedor_id: proveedorId,
                   fecha_factura: fechaFactura,
                   dias_credito: diasCredito,
                   fecha_vencimiento: fechaVenc,
-                  subtotal,
-                  tipo_iva: tipoIva,
-                  monto_iva: montoIva,
-                  total: subtotal + montoIva,
-                  notas: row.notas || null,
+                  subtotal: importe,
+                  tipo_iva: '0',
+                  monto_iva: 0,
+                  total: importe,
+                  estatus,
+                  fecha_programada_pago: fechaPago,
+                  observaciones,
+                  notas: null,
                 }
               })
             }}

@@ -11,6 +11,7 @@ export interface ExcelTemplate {
   sheetName: string
   columns: ExcelColumnDef[]
   tableName: string
+  onConflict?: string
 }
 
 export const TEMPLATES: Record<string, ExcelTemplate> = {
@@ -35,6 +36,7 @@ export const TEMPLATES: Record<string, ExcelTemplate> = {
       { header: 'Giro / Descripción', key: 'giro', example: 'PAN TORTILLA Y HARINA' },
       { header: 'Modalidad Pago (factura_primero/pago_primero)', key: 'modalidad_pago', example: 'factura_primero' },
     ],
+    onConflict: 'rfc,empresa_id',
   },
   ordenes: {
     sheetName: 'Órdenes de Compra',
@@ -52,14 +54,18 @@ export const TEMPLATES: Record<string, ExcelTemplate> = {
     sheetName: 'Facturas',
     tableName: 'facturas',
     columns: [
-      { header: 'Número Factura', key: 'numero_factura', example: 'FAC-001', required: true },
-      { header: 'RFC Proveedor', key: '_rfc_proveedor', example: 'ACM010101ABC', required: true },
-      { header: 'Número OC (opcional)', key: '_numero_oc', example: 'OC-001' },
-      { header: 'Fecha Factura (YYYY-MM-DD)', key: 'fecha_factura', example: '2026-04-01', required: true },
-      { header: 'Días Crédito', key: 'dias_credito', example: '30', required: true },
-      { header: 'Subtotal', key: 'subtotal', example: '10000.00', required: true },
-      { header: 'Tipo IVA (16, 0, exento)', key: 'tipo_iva', example: '16', required: true },
-      { header: 'Notas', key: 'notas', example: '' },
+      { header: 'ID Proveedor', key: '_id_banco', example: 'PROV016', required: true },
+      { header: 'Proveedor', key: '_proveedor_nombre', example: 'NEGOCIOS PECA' },
+      { header: 'Número Factura', key: 'numero_factura', example: 'FAC-001' },
+      { header: 'Importe', key: '_importe', example: '10000.00', required: true },
+      { header: 'Fecha Recibida', key: '_fecha_recibida', example: '06/04/2026' },
+      { header: 'Días Crédito', key: '_dias_credito', example: '30' },
+      { header: 'Fecha Vencimiento', key: '_fecha_vencimiento', example: '06/05/2026' },
+      { header: 'Confirmación de Pago', key: '_confirmacion', example: '' },
+      { header: 'Importe Pagado', key: '_importe_pagado', example: '' },
+      { header: 'Fecha de Pago', key: '_fecha_pago', example: '' },
+      { header: 'Saldo', key: '_saldo', example: '' },
+      { header: 'Observaciones', key: '_observaciones', example: '' },
     ],
   },
   cuentas_bancarias: {
