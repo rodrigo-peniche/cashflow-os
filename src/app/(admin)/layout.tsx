@@ -12,6 +12,7 @@ import {
   Building2,
   CalendarClock,
   TrendingUpDown,
+  DollarSign,
   LogOut,
   Menu,
   X,
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { href: '/facturas', label: 'Facturas', icon: Receipt },
   { href: '/bancos', label: 'Bancos', icon: Building2 },
   { href: '/pagos-programados', label: 'Pagos programados', icon: CalendarClock },
+  { href: '/ingresos', label: 'Ingresos diarios', icon: DollarSign },
   { href: '/flujos', label: 'Flujos tentativos', icon: TrendingUpDown },
 ]
 

@@ -138,6 +138,35 @@ export interface FlujoTentativo {
   cuentas_bancarias?: CuentaBancaria
 }
 
+export interface Sucursal {
+  id: string
+  empresa_id: string
+  nombre: string
+  activa: boolean
+  created_at: string
+}
+
+export interface CanalIngreso {
+  id: string
+  empresa_id: string
+  nombre: string
+  dia_deposito: string | null
+  monto_aproximado: number | null
+  activo: boolean
+  created_at: string
+}
+
+export interface IngresoDiario {
+  id: string
+  empresa_id: string
+  sucursal_id: string
+  canal_id: string
+  fecha: string
+  monto: number
+  notas: string | null
+  created_at: string
+}
+
 export interface FlujoDiario {
   fecha: string
   saldo_inicial: number
