@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatMXN } from '@/lib/constants'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
-import type { Socio, Aportacion } from '@/lib/types'
+import type { Socio, Aportacion, CuentaBancaria } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { ExportButton } from '@/components/shared/export-button'
 import { ExcelImport } from '@/components/shared/excel-import'
@@ -21,9 +21,8 @@ import { SortableHeader } from '@/components/shared/sortable-header'
 import { HandCoins, Plus, UserPlus, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
 
 const TIPOS_APORTACION = [
-  { value: 'a_cuenta', label: 'A cuenta', color: 'bg-blue-100 text-blue-800' },
+  { value: 'a_cuenta', label: 'A cuenta bancaria', color: 'bg-blue-100 text-blue-800' },
   { value: 'efectivo', label: 'Efectivo', color: 'bg-green-100 text-green-800' },
-  { value: 'otro', label: 'Otro', color: 'bg-gray-100 text-gray-800' },
 ]
 
 const STATUS_COLORS: Record<string, string> = {
@@ -36,6 +35,7 @@ export default function AportacionesPage() {
   const { empresaId, userRole } = useEmpresa()
   const [socios, setSocios] = useState<Socio[]>([])
   const [aportaciones, setAportaciones] = useState<Aportacion[]>([])
+  const [cuentas, setCuentas] = useState<CuentaBancaria[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showSocioForm, setShowSocioForm] = useState(false)
@@ -50,6 +50,7 @@ export default function AportacionesPage() {
   const [formMonto, setFormMonto] = useState('')
   const [formFecha, setFormFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [formTipo, setFormTipo] = useState('a_cuenta')
+  const [formCuenta, setFormCuenta] = useState('')
   const [formConcepto, setFormConcepto] = useState('')
   const [formMetodo, setFormMetodo] = useState('')
   const [formNotas, setFormNotas] = useState('')
@@ -62,12 +63,14 @@ export default function AportacionesPage() {
   const loadData = useCallback(async () => {
     if (!empresaId) return
     const supabase = createClient()
-    const [sociosRes, aportRes] = await Promise.all([
+    const [sociosRes, aportRes, cuentasRes] = await Promise.all([
       supabase.from('socios').select('*').eq('empresa_id', empresaId).eq('activo', true).order('nombre'),
-      supabase.from('aportaciones').select('*, socios(nombre)').eq('empresa_id', empresaId).order('fecha', { ascending: false }),
+      supabase.from('aportaciones').select('*, socios(nombre), cuentas_bancarias(nombre, banco)').eq('empresa_id', empresaId).order('fecha', { ascending: false }),
+      supabase.from('cuentas_bancarias').select('*').eq('empresa_id', empresaId).eq('activa', true).order('nombre'),
     ])
     setSocios(sociosRes.data || [])
     setAportaciones(aportRes.data || [])
+    setCuentas(cuentasRes.data || [])
     setLoading(false)
   }, [empresaId])
 
@@ -109,6 +112,7 @@ export default function AportacionesPage() {
       monto: Number(formMonto),
       fecha: formFecha,
       tipo: formTipo,
+      cuenta_bancaria_id: formTipo === 'a_cuenta' && formCuenta ? formCuenta : null,
       concepto: formConcepto.trim() || null,
       metodo_pago: formMetodo.trim() || null,
       notas: formNotas.trim() || null,
@@ -119,6 +123,7 @@ export default function AportacionesPage() {
     setFormSocio('')
     setFormMonto('')
     setFormTipo('a_cuenta')
+    setFormCuenta('')
     setFormConcepto('')
     setFormMetodo('')
     setFormNotas('')
@@ -334,10 +339,17 @@ export default function AportacionesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-sm">Método de pago</Label>
-                  <Input placeholder="Transferencia, cheque..." value={formMetodo} onChange={e => setFormMetodo(e.target.value)} />
-                </div>
+                {formTipo === 'a_cuenta' && (
+                  <div className="space-y-1">
+                    <Label className="text-sm">Cuenta bancaria</Label>
+                    <Select value={formCuenta} onValueChange={setFormCuenta}>
+                      <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
+                      <SelectContent>
+                        {cuentas.map(c => <SelectItem key={c.id} value={c.id}>{c.nombre} — {c.banco}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Input placeholder="Concepto (opcional)" value={formConcepto} onChange={e => setFormConcepto(e.target.value)} />
@@ -400,7 +412,13 @@ export default function AportacionesPage() {
                     <TableCell>
                       {(() => {
                         const tipoInfo = TIPOS_APORTACION.find(t => t.value === a.tipo)
-                        return <Badge variant="outline" className={tipoInfo?.color}>{tipoInfo?.label || a.tipo || 'A cuenta'}</Badge>
+                        const cuentaNombre = (a as unknown as Record<string, Record<string, string>>).cuentas_bancarias?.nombre
+                        return (
+                          <div>
+                            <Badge variant="outline" className={tipoInfo?.color}>{tipoInfo?.label || a.tipo || 'A cuenta'}</Badge>
+                            {cuentaNombre && <p className="text-xs text-muted-foreground mt-0.5">{cuentaNombre}</p>}
+                          </div>
+                        )
                       })()}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.concepto || '—'}</TableCell>

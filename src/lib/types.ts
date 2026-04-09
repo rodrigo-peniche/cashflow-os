@@ -210,13 +210,15 @@ export interface Aportacion {
   monto: number
   fecha: string
   concepto: string | null
-  tipo: 'a_cuenta' | 'efectivo' | 'otro'
+  tipo: 'a_cuenta' | 'efectivo'
   estatus: 'pendiente' | 'recibida' | 'cancelada'
   metodo_pago: string | null
   comprobante_url: string | null
   notas: string | null
+  cuenta_bancaria_id: string | null
   created_at: string
   socios?: Socio
+  cuentas_bancarias?: CuentaBancaria
 }
 
 export type CategoriaGasto = 'comida' | 'transporte' | 'entretenimiento' | 'compras' | 'servicios' | 'otro'

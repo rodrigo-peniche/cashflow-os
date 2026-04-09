@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import type { Empresa } from '@/lib/types'
-import { Settings, Plus, Eye, EyeOff } from 'lucide-react'
+import { Settings, Plus, Eye, EyeOff, Pencil, Save, X } from 'lucide-react'
 
 export default function EmpresasPage() {
   const { userRole } = useEmpresa()
@@ -21,6 +21,9 @@ export default function EmpresasPage() {
   const [showForm, setShowForm] = useState(false)
   const [nombre, setNombre] = useState('')
   const [rfcEmpresa, setRfcEmpresa] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editNombre, setEditNombre] = useState('')
+  const [editRfc, setEditRfc] = useState('')
 
   const loadData = useCallback(async () => {
     const supabase = createClient()
@@ -51,6 +54,25 @@ export default function EmpresasPage() {
   async function toggleActiva(id: string, activa: boolean) {
     const supabase = createClient()
     await supabase.from('empresas').update({ activa: !activa }).eq('id', id)
+    loadData()
+  }
+
+  function startEdit(e: Empresa) {
+    setEditingId(e.id)
+    setEditNombre(e.nombre)
+    setEditRfc(e.rfc_empresa || '')
+  }
+
+  async function saveEdit() {
+    if (!editingId || !editNombre.trim()) { toast.error('El nombre es requerido'); return }
+    const supabase = createClient()
+    const { error } = await supabase.from('empresas').update({
+      nombre: editNombre.trim(),
+      rfc_empresa: editRfc.trim() || null,
+    }).eq('id', editingId)
+    if (error) { toast.error(error.message); return }
+    toast.success('Empresa actualizada')
+    setEditingId(null)
     loadData()
   }
 
@@ -91,24 +113,54 @@ export default function EmpresasPage() {
                 <TableHead>RFC</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Creada</TableHead>
-                <TableHead></TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {empresas.map((e) => (
                 <TableRow key={e.id}>
-                  <TableCell className="font-medium">{e.nombre}</TableCell>
-                  <TableCell className="font-mono text-sm">{e.rfc_empresa || '—'}</TableCell>
+                  <TableCell>
+                    {editingId === e.id ? (
+                      <Input value={editNombre} onChange={(ev) => setEditNombre(ev.target.value)} className="h-8 w-full" />
+                    ) : (
+                      <span className="font-medium">{e.nombre}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {editingId === e.id ? (
+                      <Input value={editRfc} onChange={(ev) => setEditRfc(ev.target.value)} className="h-8 w-full uppercase" placeholder="RFC" />
+                    ) : (
+                      <span className="font-mono text-sm">{e.rfc_empresa || '—'}</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={e.activa ? 'default' : 'secondary'}>{e.activa ? 'Activa' : 'Inactiva'}</Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(e.created_at).toLocaleDateString('es-MX')}
                   </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" onClick={() => toggleActiva(e.id, e.activa)}>
-                      {e.activa ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
+                  <TableCell className="text-right">
+                    <div className="flex gap-1 justify-end">
+                      {editingId === e.id ? (
+                        <>
+                          <Button variant="ghost" size="sm" onClick={saveEdit} title="Guardar">
+                            <Save className="h-4 w-4 text-green-600" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} title="Cancelar">
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button variant="ghost" size="sm" onClick={() => startEdit(e)} title="Editar">
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => toggleActiva(e.id, e.activa)} title={e.activa ? 'Desactivar' : 'Activar'}>
+                            {e.activa ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
