@@ -116,6 +116,30 @@ export default function FacturasPage() {
     loadData()
   }
 
+  async function updateNumeroFactura(id: string, numero: string) {
+    if (!numero.trim()) { toast.error('El número de factura no puede estar vacío'); return }
+    const supabase = createClient()
+    const { error } = await supabase.from('facturas').update({ numero_factura: numero.trim() }).eq('id', id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Número de factura actualizado')
+    loadData()
+  }
+
+  async function updateFechaFactura(id: string, fecha: string) {
+    if (!fecha) return
+    const factura = facturas.find(f => f.id === id)
+    if (!factura) return
+    const supabase = createClient()
+    const updates: Record<string, unknown> = { fecha_factura: fecha }
+    if (factura.dias_credito > 0) {
+      updates.fecha_vencimiento = format(addDays(new Date(fecha + 'T12:00:00'), factura.dias_credito), 'yyyy-MM-dd')
+    }
+    const { error } = await supabase.from('facturas').update(updates).eq('id', id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Fecha de factura actualizada')
+    loadData()
+  }
+
   async function updateIva(id: string, tipoIva: '16' | '0' | 'exento') {
     const factura = facturas.find(f => f.id === id)
     if (!factura) return
@@ -380,6 +404,8 @@ export default function FacturasPage() {
                               onUpdateEstatus={updateEstatus}
                               onUpdateIva={updateIva}
                               onUpdateDiasCredito={updateDiasCredito}
+                              onUpdateNumeroFactura={updateNumeroFactura}
+                              onUpdateFechaFactura={updateFechaFactura}
                               onReload={loadData}
                             />
                           </TableCell>
@@ -411,6 +437,8 @@ function FacturaDetailPanel({
   onUpdateEstatus,
   onUpdateIva,
   onUpdateDiasCredito,
+  onUpdateNumeroFactura,
+  onUpdateFechaFactura,
   onReload,
 }: {
   factura: FacturaExtended
@@ -423,6 +451,8 @@ function FacturaDetailPanel({
   onUpdateEstatus: (id: string, estatus: string) => void
   onUpdateIva: (id: string, tipoIva: '16' | '0' | 'exento') => void
   onUpdateDiasCredito: (id: string, dias: number) => void
+  onUpdateNumeroFactura: (id: string, numero: string) => void
+  onUpdateFechaFactura: (id: string, fecha: string) => void
   onReload: () => void
 }) {
   const { empresaId } = useEmpresa()
@@ -480,6 +510,44 @@ function FacturaDetailPanel({
     <div className="space-y-5">
       {/* Quick info bar */}
       <div className="flex flex-wrap gap-4 text-sm">
+        <div className="flex items-center gap-1">
+          <span className="text-muted-foreground"># Factura:</span>
+          {userRole !== 'viewer' ? (
+            <Input
+              className="h-7 w-[120px] text-xs"
+              defaultValue={factura.numero_factura}
+              onBlur={(e) => {
+                const val = e.target.value.trim()
+                if (val && val !== factura.numero_factura) onUpdateNumeroFactura(factura.id, val)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = (e.target as HTMLInputElement).value.trim()
+                  if (val && val !== factura.numero_factura) onUpdateNumeroFactura(factura.id, val)
+                }
+              }}
+            />
+          ) : (
+            <span className="font-medium">{factura.numero_factura}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-muted-foreground">Fecha:</span>
+          {userRole !== 'viewer' ? (
+            <Input
+              type="date"
+              className="h-7 w-[140px] text-xs"
+              defaultValue={factura.fecha_factura}
+              onChange={(e) => {
+                if (e.target.value && e.target.value !== factura.fecha_factura) {
+                  onUpdateFechaFactura(factura.id, e.target.value)
+                }
+              }}
+            />
+          ) : (
+            <span>{format(new Date(factura.fecha_factura + 'T12:00:00'), 'dd/MM/yyyy')}</span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <span className="text-muted-foreground">IVA:</span>
           {userRole !== 'viewer' ? (
