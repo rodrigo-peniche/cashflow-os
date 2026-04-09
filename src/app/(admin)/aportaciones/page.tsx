@@ -300,12 +300,72 @@ export default function AportacionesPage() {
                   <span className="text-blue-700">A cuenta: {formatMXN(s.totalACuenta)}</span>
                   <span className="text-green-700">Efectivo: {formatMXN(s.totalEfectivo)}</span>
                   {s.totalPendiente > 0 && <span className="text-yellow-700">Pendiente: {formatMXN(s.totalPendiente)}</span>}
+                  <span className="font-semibold text-gray-900 mt-0.5">Total: {formatMXN(s.totalACuenta + s.totalEfectivo)}</span>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      {/* Balance entre socios */}
+      {socioTotals.length > 1 && (() => {
+        const maxAportado = Math.max(...socioTotals.map(s => s.totalACuenta + s.totalEfectivo))
+        const socioMax = socioTotals.find(s => s.totalACuenta + s.totalEfectivo === maxAportado)
+        const hayDesbalance = socioTotals.some(s => s.totalACuenta + s.totalEfectivo < maxAportado)
+
+        if (!hayDesbalance) return (
+          <Card className="border-green-200 bg-green-50">
+            <CardContent className="pt-6 text-center">
+              <p className="text-sm font-medium text-green-800">Todos los socios han aportado la misma cantidad</p>
+            </CardContent>
+          </Card>
+        )
+
+        return (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Balance entre socios</CardTitle>
+              <p className="text-xs text-muted-foreground">Diferencia respecto al socio que más ha aportado ({socioMax?.nombre})</p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {socioTotals
+                  .map(s => ({ ...s, totalAportado: s.totalACuenta + s.totalEfectivo }))
+                  .sort((a, b) => b.totalAportado - a.totalAportado)
+                  .map(s => {
+                    const faltante = maxAportado - s.totalAportado
+                    const porcentajeCubierto = maxAportado > 0 ? (s.totalAportado / maxAportado) * 100 : 100
+                    return (
+                      <div key={s.id} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="font-medium">{s.nombre}</span>
+                          <div className="flex gap-3">
+                            <span className="text-muted-foreground">Aportado: {formatMXN(s.totalAportado)}</span>
+                            {faltante > 0 ? (
+                              <span className="font-semibold text-orange-700">Falta: {formatMXN(faltante)}</span>
+                            ) : (
+                              <span className="font-semibold text-green-700">Al corriente</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2.5">
+                          <div
+                            className="h-2.5 rounded-full transition-all"
+                            style={{
+                              width: `${Math.min(porcentajeCubierto, 100)}%`,
+                              backgroundColor: faltante > 0 ? '#ea580c' : '#16a34a',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Add socio form */}
       {showSocioForm && (
