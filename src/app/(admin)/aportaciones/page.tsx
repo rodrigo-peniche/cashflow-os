@@ -218,11 +218,16 @@ export default function AportacionesPage() {
                     if (!socioId) continue
 
                     let fecha = String(row._fecha || '').trim()
+                    if (/^\d{5}$/.test(fecha)) {
+                      const d = new Date((Number(fecha) - 25569) * 86400 * 1000)
+                      fecha = format(d, 'yyyy-MM-dd')
+                    }
                     const ddmm = fecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
                     if (ddmm) fecha = `${ddmm[3]}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) fecha = format(new Date(), 'yyyy-MM-dd')
 
                     const tipoRaw = String(row._tipo || 'a_cuenta').toLowerCase().trim()
-                    const tipo = ['a_cuenta', 'efectivo', 'otro'].includes(tipoRaw) ? tipoRaw : 'a_cuenta'
+                    const tipo = ['a_cuenta', 'efectivo'].includes(tipoRaw) ? tipoRaw : 'a_cuenta'
 
                     const estatusRaw = String(row._estatus || 'pendiente').toLowerCase().trim()
                     const estatus = ['pendiente', 'recibida', 'cancelada'].includes(estatusRaw) ? estatusRaw : 'pendiente'
