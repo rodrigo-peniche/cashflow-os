@@ -191,3 +191,46 @@ export interface FlujoDiarioItem {
   monto: number
   origen: string
 }
+
+export interface Socio {
+  id: string
+  empresa_id: string
+  nombre: string
+  email: string | null
+  telefono: string | null
+  porcentaje_participacion: number | null
+  activo: boolean
+  created_at: string
+}
+
+export interface Aportacion {
+  id: string
+  empresa_id: string
+  socio_id: string
+  monto: number
+  fecha: string
+  concepto: string | null
+  estatus: 'pendiente' | 'recibida' | 'cancelada'
+  metodo_pago: string | null
+  comprobante_url: string | null
+  notas: string | null
+  created_at: string
+  socios?: Socio
+}
+
+export type CategoriaGasto = 'comida' | 'transporte' | 'entretenimiento' | 'compras' | 'servicios' | 'otro'
+
+export interface GastoPersonal {
+  id: string
+  empresa_id: string
+  socio_id: string
+  monto: number
+  fecha: string
+  descripcion: string
+  categoria: CategoriaGasto
+  estatus: 'pendiente' | 'descontado'
+  mes_descuento: string | null
+  notas: string | null
+  created_at: string
+  socios?: Socio
+}

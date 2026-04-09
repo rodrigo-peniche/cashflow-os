@@ -47,6 +47,8 @@ export const config = {
     '/usuarios/:path*',
     '/empresas/:path*',
     '/ingresos/:path*',
+    '/aportaciones/:path*',
+    '/gastos-tarjeta/:path*',
     '/plataforma/:path*',
   ],
 }
