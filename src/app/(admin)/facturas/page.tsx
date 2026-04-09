@@ -461,6 +461,20 @@ function FacturaDetailPanel({
         {factura.monto_iva > 0 && (
           <div><span className="text-muted-foreground">IVA:</span> {formatMXN(factura.monto_iva)}</div>
         )}
+        {factura.dias_credito > 0 && (
+          <div><span className="text-muted-foreground">Crédito:</span> {factura.dias_credito} días</div>
+        )}
+        {factura.fecha_vencimiento && (
+          <div>
+            <span className="text-muted-foreground">Vencimiento:</span>{' '}
+            <span className="font-medium">{format(new Date(factura.fecha_vencimiento + 'T12:00:00'), 'dd/MM/yyyy')}</span>
+            {(() => {
+              const status = getVencimientoStatus(factura.fecha_vencimiento, factura.estatus)
+              if (!status) return null
+              return <Badge variant="outline" className={`ml-1 ${status.className}`}>{status.label}</Badge>
+            })()}
+          </div>
+        )}
         {(factura as unknown as Record<string, Record<string, string>>).ordenes_compra?.numero_oc && (
           <div>
             <span className="text-muted-foreground">OC:</span>{' '}
