@@ -32,9 +32,10 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUSES = ['pendiente', 'aprobada', 'programada', 'pagada', 'rechazada']
 
-function getVencimientoStatus(fechaVencimiento: string | null, estatus: string): { label: string; className: string } | null {
-  if (!fechaVencimiento || estatus === 'pagada' || estatus === 'rechazada') return null
-  const venc = new Date(fechaVencimiento + 'T12:00:00')
+function getVencimientoStatus(fechaVencimiento: string | null | undefined, estatus: string, fechaFactura?: string): { label: string; className: string } | null {
+  const fecha = fechaVencimiento || fechaFactura || null
+  if (!fecha || estatus === 'pagada' || estatus === 'rechazada') return null
+  const venc = new Date(fecha + 'T12:00:00')
   const today = new Date()
   today.setHours(12, 0, 0, 0)
   const diff = differenceInDays(venc, today)
@@ -54,7 +55,7 @@ function getProveedorNombre(f: FacturaExtended): string {
 }
 
 function getSituacionOrder(f: FacturaExtended): number {
-  const status = getVencimientoStatus(f.fecha_vencimiento, f.estatus)
+  const status = getVencimientoStatus(f.fecha_vencimiento, f.estatus, f.fecha_factura)
   if (!status) return 99
   if (status.label.startsWith('Vencida')) return 0
   if (status.label === 'Vence hoy') return 1
@@ -131,9 +132,7 @@ export default function FacturasPage() {
     if (!factura) return
     const supabase = createClient()
     const updates: Record<string, unknown> = { fecha_factura: fecha }
-    if (factura.dias_credito > 0) {
-      updates.fecha_vencimiento = format(addDays(new Date(fecha + 'T12:00:00'), factura.dias_credito), 'yyyy-MM-dd')
-    }
+    updates.fecha_vencimiento = format(addDays(new Date(fecha + 'T12:00:00'), factura.dias_credito || 0), 'yyyy-MM-dd')
     const { error } = await supabase.from('facturas').update(updates).eq('id', id)
     if (error) { toast.error(error.message); return }
     toast.success('Fecha de factura actualizada')
@@ -156,7 +155,7 @@ export default function FacturasPage() {
     const factura = facturas.find(f => f.id === id)
     if (!factura) return
     const supabase = createClient()
-    const fechaVenc = diasCredito > 0 ? format(addDays(new Date(factura.fecha_factura + 'T12:00:00'), diasCredito), 'yyyy-MM-dd') : null
+    const fechaVenc = format(addDays(new Date(factura.fecha_factura + 'T12:00:00'), diasCredito), 'yyyy-MM-dd')
     const { error } = await supabase.from('facturas').update({ dias_credito: diasCredito, fecha_vencimiento: fechaVenc }).eq('id', id)
     if (error) { toast.error(error.message); return }
     toast.success('Días crédito actualizado')
@@ -369,11 +368,11 @@ export default function FacturasPage() {
                         </TableCell>
                         <TableCell>{format(new Date(f.fecha_factura + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
                         <TableCell>
-                          {f.fecha_vencimiento ? format(new Date(f.fecha_vencimiento + 'T12:00:00'), 'dd/MM/yy') : '—'}
+                          {(f.fecha_vencimiento || f.fecha_factura) ? format(new Date((f.fecha_vencimiento || f.fecha_factura) + 'T12:00:00'), 'dd/MM/yy') : '—'}
                         </TableCell>
                         <TableCell>
                           {(() => {
-                            const status = getVencimientoStatus(f.fecha_vencimiento, f.estatus)
+                            const status = getVencimientoStatus(f.fecha_vencimiento, f.estatus, f.fecha_factura)
                             if (!status) return '—'
                             return <Badge variant="outline" className={status.className}>{status.label}</Badge>
                           })()}
@@ -595,12 +594,12 @@ function FacturaDetailPanel({
           )}
           <span className="text-muted-foreground">días</span>
         </div>
-        {factura.fecha_vencimiento && (
+        {(factura.fecha_vencimiento || factura.fecha_factura) && (
           <div>
             <span className="text-muted-foreground">Vencimiento:</span>{' '}
-            <span className="font-medium">{format(new Date(factura.fecha_vencimiento + 'T12:00:00'), 'dd/MM/yyyy')}</span>
+            <span className="font-medium">{format(new Date((factura.fecha_vencimiento || factura.fecha_factura) + 'T12:00:00'), 'dd/MM/yyyy')}</span>
             {(() => {
-              const status = getVencimientoStatus(factura.fecha_vencimiento, factura.estatus)
+              const status = getVencimientoStatus(factura.fecha_vencimiento, factura.estatus, factura.fecha_factura)
               if (!status) return null
               return <Badge variant="outline" className={`ml-1 ${status.className}`}>{status.label}</Badge>
             })()}
