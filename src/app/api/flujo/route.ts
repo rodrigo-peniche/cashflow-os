@@ -63,7 +63,7 @@ export async function GET() {
   ] = await Promise.all([
     supabase
       .from('facturas')
-      .select('*')
+      .select('*, proveedores(nombre_empresa)')
       .eq('empresa_id', empresaId)
       .in('estatus', ['pendiente', 'aprobada', 'programada'])
       .gte('fecha_vencimiento', format(today, 'yyyy-MM-dd'))
@@ -118,12 +118,13 @@ export async function GET() {
     // --- INVOICES ---
     facturas?.forEach((f) => {
       if (f.fecha_vencimiento !== dateStr) return
+      const provNombre = (f as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || f.numero_factura
 
       if (f.estatus === 'aprobada' || f.estatus === 'programada') {
         egreso_real += Number(f.total)
         items.push({
           tipo: 'egreso_real',
-          descripcion: `Factura ${f.numero_factura}`,
+          descripcion: provNombre,
           monto: Number(f.total),
           origen: 'factura',
         })
@@ -131,7 +132,7 @@ export async function GET() {
         egreso_estimado += Number(f.total)
         items.push({
           tipo: 'egreso_estimado',
-          descripcion: `Factura pendiente ${f.numero_factura}`,
+          descripcion: provNombre,
           monto: Number(f.total),
           origen: 'factura',
         })
