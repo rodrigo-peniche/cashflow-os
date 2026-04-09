@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -10,9 +10,80 @@ import { es } from 'date-fns/locale'
 import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Line, ComposedChart,
 } from 'recharts'
-import type { FlujoDiario } from '@/lib/types'
+import type { FlujoDiario, FlujoDiarioItem } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react'
+
+function FlowCell({
+  value,
+  items,
+  bgStyle,
+  className = '',
+}: {
+  value: number
+  items: FlujoDiarioItem[]
+  bgStyle?: React.CSSProperties
+  className?: string
+}) {
+  const [showTooltip, setShowTooltip] = useState(false)
+  const cellRef = useRef<HTMLTableCellElement>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  if (value <= 0) {
+    return (
+      <td className={`text-center p-2 text-sm ${className}`}>
+        —
+      </td>
+    )
+  }
+
+  return (
+    <td
+      ref={cellRef}
+      className={`text-center p-2 text-sm relative ${className}`}
+      style={{ ...bgStyle, cursor: items.length > 0 ? 'pointer' : undefined }}
+      onMouseEnter={() => {
+        if (items.length === 0) return
+        timeoutRef.current = setTimeout(() => setShowTooltip(true), 200)
+      }}
+      onMouseLeave={() => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current)
+        setShowTooltip(false)
+      }}
+    >
+      {formatMXN(value)}
+      {showTooltip && items.length > 0 && (
+        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-white border border-gray-200 rounded-lg shadow-xl p-3 text-left"
+          style={{ pointerEvents: 'none' }}
+        >
+          <div className="text-xs font-semibold text-gray-700 mb-2 border-b pb-1">
+            Desglose ({items.length} {items.length === 1 ? 'concepto' : 'conceptos'})
+          </div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {items.map((item, i) => (
+              <div key={i} className="flex justify-between items-start gap-2 text-xs">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 truncate">{item.descripcion}</p>
+                  <p className="text-gray-400">
+                    {item.origen === 'factura' ? 'Factura' :
+                     item.origen === 'pago_programado' ? 'Pago prog.' : 'Tentativo'}
+                  </p>
+                </div>
+                <span className="font-semibold text-gray-800 shrink-0">{formatMXN(item.monto)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t mt-2 pt-1.5 flex justify-between text-xs font-bold text-gray-900">
+            <span>Total</span>
+            <span>{formatMXN(value)}</span>
+          </div>
+          {/* Arrow */}
+          <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-3 h-3 bg-white border-r border-b border-gray-200 rotate-45" />
+        </div>
+      )}
+    </td>
+  )
+}
 
 export default function DashboardPage() {
   const [flujo, setFlujo] = useState<FlujoDiario[]>([])
@@ -171,13 +242,12 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       {flujo.map((d) => (
-                        <td
+                        <FlowCell
                           key={d.fecha}
-                          className="text-center p-2 text-sm"
-                          style={d.ingreso_real > 0 ? { backgroundColor: FLOW_COLORS.ingreso_real + '15' } : {}}
-                        >
-                          {d.ingreso_real > 0 ? formatMXN(d.ingreso_real) : '—'}
-                        </td>
+                          value={d.ingreso_real}
+                          items={d.items.filter(i => i.tipo === 'ingreso_real')}
+                          bgStyle={d.ingreso_real > 0 ? { backgroundColor: FLOW_COLORS.ingreso_real + '15' } : {}}
+                        />
                       ))}
                     </tr>
 
@@ -189,13 +259,12 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       {flujo.map((d) => (
-                        <td
+                        <FlowCell
                           key={d.fecha}
-                          className="text-center p-2 text-sm"
-                          style={d.ingreso_estimado > 0 ? { backgroundColor: FLOW_COLORS.ingreso_estimado + '30', borderStyle: 'dashed' } : {}}
-                        >
-                          {d.ingreso_estimado > 0 ? formatMXN(d.ingreso_estimado) : '—'}
-                        </td>
+                          value={d.ingreso_estimado}
+                          items={d.items.filter(i => i.tipo === 'ingreso_estimado')}
+                          bgStyle={d.ingreso_estimado > 0 ? { backgroundColor: FLOW_COLORS.ingreso_estimado + '30', borderStyle: 'dashed' } : {}}
+                        />
                       ))}
                     </tr>
 
@@ -207,13 +276,12 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       {flujo.map((d) => (
-                        <td
+                        <FlowCell
                           key={d.fecha}
-                          className="text-center p-2 text-sm"
-                          style={d.egreso_real > 0 ? { backgroundColor: FLOW_COLORS.egreso_real + '10' } : {}}
-                        >
-                          {d.egreso_real > 0 ? formatMXN(d.egreso_real) : '—'}
-                        </td>
+                          value={d.egreso_real}
+                          items={d.items.filter(i => i.tipo === 'egreso_real')}
+                          bgStyle={d.egreso_real > 0 ? { backgroundColor: FLOW_COLORS.egreso_real + '10' } : {}}
+                        />
                       ))}
                     </tr>
 
@@ -225,13 +293,12 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       {flujo.map((d) => (
-                        <td
+                        <FlowCell
                           key={d.fecha}
-                          className="text-center p-2 text-sm"
-                          style={d.egreso_estimado > 0 ? { backgroundColor: FLOW_COLORS.egreso_estimado + '40', borderStyle: 'dashed' } : {}}
-                        >
-                          {d.egreso_estimado > 0 ? formatMXN(d.egreso_estimado) : '—'}
-                        </td>
+                          value={d.egreso_estimado}
+                          items={d.items.filter(i => i.tipo === 'egreso_estimado')}
+                          bgStyle={d.egreso_estimado > 0 ? { backgroundColor: FLOW_COLORS.egreso_estimado + '40', borderStyle: 'dashed' } : {}}
+                        />
                       ))}
                     </tr>
 
