@@ -165,6 +165,8 @@ export default function AportacionesPage() {
   // Totals
   const totalRecibidas = aportaciones.filter(a => a.estatus === 'recibida').reduce((s, a) => s + a.monto, 0)
   const totalPendientes = aportaciones.filter(a => a.estatus === 'pendiente').reduce((s, a) => s + a.monto, 0)
+  const totalACuenta = aportaciones.filter(a => a.tipo === 'a_cuenta').reduce((s, a) => s + a.monto, 0)
+  const totalEfectivo = aportaciones.filter(a => a.tipo === 'efectivo').reduce((s, a) => s + a.monto, 0)
 
   // Per-socio totals
   const socioTotals = socios.map(s => {
@@ -173,6 +175,8 @@ export default function AportacionesPage() {
       ...s,
       totalRecibido: socioAports.filter(a => a.estatus === 'recibida').reduce((sum, a) => sum + a.monto, 0),
       totalPendiente: socioAports.filter(a => a.estatus === 'pendiente').reduce((sum, a) => sum + a.monto, 0),
+      totalACuenta: socioAports.filter(a => a.tipo === 'a_cuenta').reduce((sum, a) => sum + a.monto, 0),
+      totalEfectivo: socioAports.filter(a => a.tipo === 'efectivo').reduce((sum, a) => sum + a.monto, 0),
       count: socioAports.length,
     }
   })
@@ -250,7 +254,7 @@ export default function AportacionesPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Total recibido</p>
@@ -265,8 +269,14 @@ export default function AportacionesPage() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Total comprometido</p>
-            <p className="text-2xl font-bold">{formatMXN(totalRecibidas + totalPendientes)}</p>
+            <p className="text-sm text-muted-foreground">A cuenta bancaria</p>
+            <p className="text-2xl font-bold text-blue-700">{formatMXN(totalACuenta)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">En efectivo</p>
+            <p className="text-2xl font-bold text-green-700">{formatMXN(totalEfectivo)}</p>
           </CardContent>
         </Card>
       </div>
@@ -275,14 +285,15 @@ export default function AportacionesPage() {
       {socioTotals.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {socioTotals.map(s => (
-            <Card key={s.id} className="flex-1 min-w-[200px]">
+            <Card key={s.id} className="flex-1 min-w-[220px]">
               <CardContent className="pt-4 pb-3">
                 <p className="font-semibold text-sm">{s.nombre}</p>
                 {s.porcentaje_participacion && (
                   <p className="text-xs text-muted-foreground">{s.porcentaje_participacion}% participación</p>
                 )}
-                <div className="flex gap-3 mt-1 text-xs">
-                  <span className="text-green-700">Recibido: {formatMXN(s.totalRecibido)}</span>
+                <div className="flex flex-col gap-0.5 mt-1 text-xs">
+                  <span className="text-blue-700">A cuenta: {formatMXN(s.totalACuenta)}</span>
+                  <span className="text-green-700">Efectivo: {formatMXN(s.totalEfectivo)}</span>
                   {s.totalPendiente > 0 && <span className="text-yellow-700">Pendiente: {formatMXN(s.totalPendiente)}</span>}
                 </div>
               </CardContent>
