@@ -210,6 +210,7 @@ export interface Aportacion {
   monto: number
   fecha: string
   concepto: string | null
+  tipo: 'a_cuenta' | 'efectivo' | 'otro'
   estatus: 'pendiente' | 'recibida' | 'cancelada'
   metodo_pago: string | null
   comprobante_url: string | null

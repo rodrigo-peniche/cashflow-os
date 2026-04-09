@@ -118,6 +118,32 @@ export const TEMPLATES: Record<string, ExcelTemplate> = {
       { header: 'Notas', key: 'notas', example: '' },
     ],
   },
+  aportaciones: {
+    sheetName: 'Aportaciones',
+    tableName: 'aportaciones',
+    columns: [
+      { header: 'Socio', key: '_socio_nombre', example: 'Juan Pérez', required: true },
+      { header: 'Monto', key: 'monto', example: '50000.00', required: true },
+      { header: 'Fecha', key: '_fecha', example: '09/04/2026', required: true },
+      { header: 'Tipo (a_cuenta/efectivo/otro)', key: '_tipo', example: 'a_cuenta', required: true },
+      { header: 'Concepto', key: 'concepto', example: 'Capital inicial' },
+      { header: 'Método de Pago', key: 'metodo_pago', example: 'Transferencia' },
+      { header: 'Estatus (pendiente/recibida)', key: '_estatus', example: 'recibida' },
+      { header: 'Notas', key: 'notas', example: '' },
+    ],
+  },
+  gastos_personales: {
+    sheetName: 'Gastos Personales',
+    tableName: 'gastos_personales',
+    columns: [
+      { header: 'Socio', key: '_socio_nombre', example: 'Juan Pérez', required: true },
+      { header: 'Monto', key: 'monto', example: '1500.00', required: true },
+      { header: 'Fecha', key: '_fecha', example: '09/04/2026', required: true },
+      { header: 'Descripción', key: 'descripcion', example: 'Comida restaurante', required: true },
+      { header: 'Categoría (comida/transporte/entretenimiento/compras/servicios/otro)', key: '_categoria', example: 'comida' },
+      { header: 'Notas', key: 'notas', example: '' },
+    ],
+  },
 }
 
 export function downloadTemplate(templateKey: string) {

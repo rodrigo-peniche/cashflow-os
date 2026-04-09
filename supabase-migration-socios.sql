@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS uno_cashflow.aportaciones (
   monto NUMERIC(14,2) NOT NULL,
   fecha DATE NOT NULL,
   concepto TEXT,
+  tipo TEXT NOT NULL DEFAULT 'a_cuenta' CHECK (tipo IN ('a_cuenta', 'efectivo', 'otro')),
   estatus TEXT NOT NULL DEFAULT 'pendiente' CHECK (estatus IN ('pendiente', 'recibida', 'cancelada')),
   metodo_pago TEXT,
   comprobante_url TEXT,

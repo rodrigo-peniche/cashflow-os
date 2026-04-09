@@ -16,8 +16,15 @@ import { format } from 'date-fns'
 import type { Socio, Aportacion } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { ExportButton } from '@/components/shared/export-button'
+import { ExcelImport } from '@/components/shared/excel-import'
 import { SortableHeader } from '@/components/shared/sortable-header'
 import { HandCoins, Plus, UserPlus, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
+
+const TIPOS_APORTACION = [
+  { value: 'a_cuenta', label: 'A cuenta', color: 'bg-blue-100 text-blue-800' },
+  { value: 'efectivo', label: 'Efectivo', color: 'bg-green-100 text-green-800' },
+  { value: 'otro', label: 'Otro', color: 'bg-gray-100 text-gray-800' },
+]
 
 const STATUS_COLORS: Record<string, string> = {
   pendiente: 'bg-yellow-100 text-yellow-800',
@@ -42,6 +49,7 @@ export default function AportacionesPage() {
   const [formSocio, setFormSocio] = useState('')
   const [formMonto, setFormMonto] = useState('')
   const [formFecha, setFormFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [formTipo, setFormTipo] = useState('a_cuenta')
   const [formConcepto, setFormConcepto] = useState('')
   const [formMetodo, setFormMetodo] = useState('')
   const [formNotas, setFormNotas] = useState('')
@@ -100,6 +108,7 @@ export default function AportacionesPage() {
       socio_id: formSocio,
       monto: Number(formMonto),
       fecha: formFecha,
+      tipo: formTipo,
       concepto: formConcepto.trim() || null,
       metodo_pago: formMetodo.trim() || null,
       notas: formNotas.trim() || null,
@@ -109,6 +118,7 @@ export default function AportacionesPage() {
     toast.success('Aportación registrada')
     setFormSocio('')
     setFormMonto('')
+    setFormTipo('a_cuenta')
     setFormConcepto('')
     setFormMetodo('')
     setFormNotas('')
@@ -166,10 +176,11 @@ export default function AportacionesPage() {
     'Socio': getSocioNombre(a),
     'Monto': a.monto,
     'Fecha': a.fecha,
+    'Tipo': TIPOS_APORTACION.find(t => t.value === a.tipo)?.label || a.tipo || 'A cuenta',
     'Concepto': a.concepto || '',
     'Método': a.metodo_pago || '',
     'Estatus': a.estatus,
-    'Notas': a.notas || '',
+    'Observaciones': a.notas || '',
   }))
 
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
@@ -182,6 +193,46 @@ export default function AportacionesPage() {
           <ExportButton data={exportData} filename="aportaciones" sheetName="Aportaciones" />
           {userRole !== 'viewer' && (
             <>
+              <ExcelImport
+                templateKey="aportaciones"
+                empresaId={empresaId}
+                onSuccess={loadData}
+                transformRows={async (rows) => {
+                  const supabase = createClient()
+                  const { data: sociosDb } = await supabase.from('socios').select('id, nombre').eq('empresa_id', empresaId!)
+                  const socioMap = new Map((sociosDb || []).map(s => [s.nombre.toUpperCase(), s.id]))
+
+                  const result: Record<string, unknown>[] = []
+                  for (const row of rows) {
+                    const nombre = String(row._socio_nombre || '').toUpperCase().trim()
+                    const socioId = socioMap.get(nombre)
+                    if (!socioId) continue
+
+                    let fecha = String(row._fecha || '').trim()
+                    const ddmm = fecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+                    if (ddmm) fecha = `${ddmm[3]}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`
+
+                    const tipoRaw = String(row._tipo || 'a_cuenta').toLowerCase().trim()
+                    const tipo = ['a_cuenta', 'efectivo', 'otro'].includes(tipoRaw) ? tipoRaw : 'a_cuenta'
+
+                    const estatusRaw = String(row._estatus || 'pendiente').toLowerCase().trim()
+                    const estatus = ['pendiente', 'recibida', 'cancelada'].includes(estatusRaw) ? estatusRaw : 'pendiente'
+
+                    result.push({
+                      empresa_id: empresaId,
+                      socio_id: socioId,
+                      monto: Number(row.monto) || 0,
+                      fecha,
+                      tipo,
+                      concepto: row.concepto || null,
+                      metodo_pago: row.metodo_pago || null,
+                      estatus,
+                      notas: row.notas || null,
+                    })
+                  }
+                  return result
+                }}
+              />
               <Button variant="outline" size="sm" onClick={() => setShowSocioForm(!showSocioForm)}>
                 <UserPlus className="h-4 w-4 mr-1" /> Socio
               </Button>
@@ -256,7 +307,7 @@ export default function AportacionesPage() {
           <CardHeader><CardTitle className="text-base">Nueva aportación</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={addAportacion} className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div className="space-y-1">
                   <Label className="text-sm">Socio *</Label>
                   <Select value={formSocio} onValueChange={setFormSocio}>
@@ -275,13 +326,22 @@ export default function AportacionesPage() {
                   <Input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} required />
                 </div>
                 <div className="space-y-1">
+                  <Label className="text-sm">Tipo *</Label>
+                  <Select value={formTipo} onValueChange={setFormTipo}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TIPOS_APORTACION.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
                   <Label className="text-sm">Método de pago</Label>
                   <Input placeholder="Transferencia, cheque..." value={formMetodo} onChange={e => setFormMetodo(e.target.value)} />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Input placeholder="Concepto (opcional)" value={formConcepto} onChange={e => setFormConcepto(e.target.value)} />
-                <Input placeholder="Notas (opcional)" value={formNotas} onChange={e => setFormNotas(e.target.value)} />
+                <Input placeholder="Observaciones (opcional)" value={formNotas} onChange={e => setFormNotas(e.target.value)} />
               </div>
               <Button type="submit"><Plus className="h-4 w-4 mr-1" /> Registrar aportación</Button>
             </form>
@@ -319,7 +379,9 @@ export default function AportacionesPage() {
                 <SortableHeader label="Socio" column="socio" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Monto" column="monto" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
                 <SortableHeader label="Fecha" column="fecha" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <TableHead>Tipo</TableHead>
                 <TableHead>Concepto</TableHead>
+                <TableHead>Observaciones</TableHead>
                 <SortableHeader label="Estatus" column="estatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <TableHead></TableHead>
               </TableRow>
@@ -335,7 +397,14 @@ export default function AportacionesPage() {
                     <TableCell className="font-medium">{getSocioNombre(a)}</TableCell>
                     <TableCell className="text-right font-medium">{formatMXN(a.monto)}</TableCell>
                     <TableCell>{format(new Date(a.fecha + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const tipoInfo = TIPOS_APORTACION.find(t => t.value === a.tipo)
+                        return <Badge variant="outline" className={tipoInfo?.color}>{tipoInfo?.label || a.tipo || 'A cuenta'}</Badge>
+                      })()}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.concepto || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{a.notas || '—'}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={STATUS_COLORS[a.estatus]}>
                         {a.estatus.charAt(0).toUpperCase() + a.estatus.slice(1)}
@@ -357,7 +426,7 @@ export default function AportacionesPage() {
                 )
               })}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No hay aportaciones</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No hay aportaciones</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
