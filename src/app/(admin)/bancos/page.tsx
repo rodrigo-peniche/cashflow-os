@@ -265,6 +265,66 @@ export default function BancosPage() {
         )}
       </div>
 
+      {/* Historical balances per account */}
+      {cuentas.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Saldos históricos por cuenta</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {cuentas.map(c => {
+                const cuentaSaldos = saldos
+                  .filter(s => s.cuenta_id === c.id)
+                  .sort((a, b) => b.fecha.localeCompare(a.fecha))
+                return (
+                  <div key={c.id}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="font-semibold text-sm">{c.nombre}</p>
+                      <Badge variant="outline">{c.banco}</Badge>
+                    </div>
+                    {cuentaSaldos.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Sin saldos registrados</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Fecha</TableHead>
+                            <TableHead className="text-right">Saldo</TableHead>
+                            <TableHead>Variación</TableHead>
+                            <TableHead>Notas</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {cuentaSaldos.map((s, idx) => {
+                            const prev = cuentaSaldos[idx + 1]
+                            const diff = prev ? s.saldo - prev.saldo : 0
+                            return (
+                              <TableRow key={s.id || `${s.cuenta_id}-${s.fecha}`}>
+                                <TableCell className="text-sm">{format(new Date(s.fecha + 'T12:00:00'), 'dd/MM/yyyy')}</TableCell>
+                                <TableCell className="text-right font-medium">{formatMXN(s.saldo)}</TableCell>
+                                <TableCell>
+                                  {prev ? (
+                                    <span className={`text-sm font-medium ${diff >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                                      {diff >= 0 ? '+' : ''}{formatMXN(diff)}
+                                    </span>
+                                  ) : '—'}
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{s.notas || '—'}</TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Chart */}
       {chartData.length > 0 && (
         <Card>
