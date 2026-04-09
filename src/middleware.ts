@@ -50,5 +50,6 @@ export const config = {
     '/aportaciones/:path*',
     '/gastos-tarjeta/:path*',
     '/plataforma/:path*',
+    '/manual/:path*',
   ],
 }
