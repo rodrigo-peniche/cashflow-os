@@ -116,6 +116,29 @@ export default function FacturasPage() {
     loadData()
   }
 
+  async function updateIva(id: string, tipoIva: '16' | '0' | 'exento') {
+    const factura = facturas.find(f => f.id === id)
+    if (!factura) return
+    const supabase = createClient()
+    const montoIva = tipoIva === '16' ? factura.subtotal * 0.16 : 0
+    const total = factura.subtotal + montoIva
+    const { error } = await supabase.from('facturas').update({ tipo_iva: tipoIva, monto_iva: montoIva, total }).eq('id', id)
+    if (error) { toast.error(error.message); return }
+    toast.success('IVA actualizado')
+    loadData()
+  }
+
+  async function updateDiasCredito(id: string, diasCredito: number) {
+    const factura = facturas.find(f => f.id === id)
+    if (!factura) return
+    const supabase = createClient()
+    const fechaVenc = diasCredito > 0 ? format(addDays(new Date(factura.fecha_factura + 'T12:00:00'), diasCredito), 'yyyy-MM-dd') : null
+    const { error } = await supabase.from('facturas').update({ dias_credito: diasCredito, fecha_vencimiento: fechaVenc }).eq('id', id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Días crédito actualizado')
+    loadData()
+  }
+
   async function saveObservaciones(id: string, observaciones: string) {
     const supabase = createClient()
     const { error } = await supabase.from('facturas').update({ observaciones: observaciones || null }).eq('id', id)
@@ -355,6 +378,8 @@ export default function FacturasPage() {
                               onAssignProveedor={assignProveedor}
                               onSetPaymentDate={setPaymentDate}
                               onUpdateEstatus={updateEstatus}
+                              onUpdateIva={updateIva}
+                              onUpdateDiasCredito={updateDiasCredito}
                               onReload={loadData}
                             />
                           </TableCell>
@@ -384,6 +409,8 @@ function FacturaDetailPanel({
   onAssignProveedor,
   onSetPaymentDate,
   onUpdateEstatus,
+  onUpdateIva,
+  onUpdateDiasCredito,
   onReload,
 }: {
   factura: FacturaExtended
@@ -394,6 +421,8 @@ function FacturaDetailPanel({
   onAssignProveedor: (facturaId: string, proveedorId: string) => void
   onSetPaymentDate: (id: string, fecha: string) => void
   onUpdateEstatus: (id: string, estatus: string) => void
+  onUpdateIva: (id: string, tipoIva: '16' | '0' | 'exento') => void
+  onUpdateDiasCredito: (id: string, dias: number) => void
   onReload: () => void
 }) {
   const { empresaId } = useEmpresa()
@@ -451,9 +480,22 @@ function FacturaDetailPanel({
     <div className="space-y-5">
       {/* Quick info bar */}
       <div className="flex flex-wrap gap-4 text-sm">
-        <div>
-          <span className="text-muted-foreground">IVA:</span>{' '}
-          <Badge variant="outline">{factura.tipo_iva === '16' ? '16%' : factura.tipo_iva === '0' ? '0%' : 'Exento'}</Badge>
+        <div className="flex items-center gap-1">
+          <span className="text-muted-foreground">IVA:</span>
+          {userRole !== 'viewer' ? (
+            <Select value={factura.tipo_iva} onValueChange={(v) => onUpdateIva(factura.id, v as '16' | '0' | 'exento')}>
+              <SelectTrigger className="h-7 w-[90px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="16">16%</SelectItem>
+                <SelectItem value="0">0%</SelectItem>
+                <SelectItem value="exento">Exento</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Badge variant="outline">{factura.tipo_iva === '16' ? '16%' : factura.tipo_iva === '0' ? '0%' : 'Exento'}</Badge>
+          )}
         </div>
         <div>
           <span className="text-muted-foreground">Subtotal:</span> {formatMXN(factura.subtotal)}
@@ -461,9 +503,30 @@ function FacturaDetailPanel({
         {factura.monto_iva > 0 && (
           <div><span className="text-muted-foreground">IVA:</span> {formatMXN(factura.monto_iva)}</div>
         )}
-        {factura.dias_credito > 0 && (
-          <div><span className="text-muted-foreground">Crédito:</span> {factura.dias_credito} días</div>
-        )}
+        <div className="flex items-center gap-1">
+          <span className="text-muted-foreground">Crédito:</span>
+          {userRole !== 'viewer' ? (
+            <Input
+              type="number"
+              min={0}
+              className="h-7 w-[70px] text-xs text-center"
+              defaultValue={factura.dias_credito}
+              onBlur={(e) => {
+                const val = parseInt(e.target.value) || 0
+                if (val !== factura.dias_credito) onUpdateDiasCredito(factura.id, val)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = parseInt((e.target as HTMLInputElement).value) || 0
+                  if (val !== factura.dias_credito) onUpdateDiasCredito(factura.id, val)
+                }
+              }}
+            />
+          ) : (
+            <span>{factura.dias_credito}</span>
+          )}
+          <span className="text-muted-foreground">días</span>
+        </div>
         {factura.fecha_vencimiento && (
           <div>
             <span className="text-muted-foreground">Vencimiento:</span>{' '}
