@@ -57,6 +57,7 @@ export async function GET() {
   // Fetch all required data in parallel
   const [
     { data: facturas },
+    { data: facturasVencidas },
     { data: pagos },
     { data: flujos },
     { data: cuentas },
@@ -68,6 +69,12 @@ export async function GET() {
       .in('estatus', ['pendiente', 'aprobada', 'programada'])
       .gte('fecha_vencimiento', format(today, 'yyyy-MM-dd'))
       .lte('fecha_vencimiento', format(addDays(today, 14), 'yyyy-MM-dd')),
+    supabase
+      .from('facturas')
+      .select('*, proveedores(nombre_empresa)')
+      .eq('empresa_id', empresaId)
+      .in('estatus', ['pendiente', 'aprobada', 'programada'])
+      .lt('fecha_vencimiento', format(today, 'yyyy-MM-dd')),
     supabase
       .from('pagos_programados')
       .select('*')
@@ -226,5 +233,26 @@ export async function GET() {
     })
   }
 
-  return NextResponse.json(days)
+  // Build overdue items
+  const overdueItems: FlujoDiarioItem[] = []
+  let overdueTotal = 0
+  facturasVencidas?.forEach((f) => {
+    const provNombre = (f as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || f.numero_factura
+    const monto = Number(f.total)
+    overdueTotal += monto
+    overdueItems.push({
+      tipo: 'egreso_estimado',
+      descripcion: provNombre,
+      monto,
+      origen: 'factura',
+    })
+  })
+
+  return NextResponse.json({
+    days,
+    overdue: {
+      total: overdueTotal,
+      items: overdueItems,
+    },
+  })
 }
