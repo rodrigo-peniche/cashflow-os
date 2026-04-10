@@ -216,6 +216,7 @@ export interface Aportacion {
   comprobante_url: string | null
   notas: string | null
   cuenta_bancaria_id: string | null
+  fecha_compromiso: string | null
   created_at: string
   socios?: Socio
   cuentas_bancarias?: CuentaBancaria

@@ -18,7 +18,7 @@ import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { ExportButton } from '@/components/shared/export-button'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { SortableHeader } from '@/components/shared/sortable-header'
-import { HandCoins, Plus, UserPlus, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
+import { HandCoins, Plus, UserPlus, ChevronDown, ChevronUp, Check, X, AlertTriangle, Calculator, Send } from 'lucide-react'
 
 const TIPOS_APORTACION = [
   { value: 'a_cuenta', label: 'A cuenta bancaria', color: 'bg-blue-100 text-blue-800' },
@@ -36,6 +36,8 @@ export default function AportacionesPage() {
   const [socios, setSocios] = useState<Socio[]>([])
   const [aportaciones, setAportaciones] = useState<Aportacion[]>([])
   const [cuentas, setCuentas] = useState<CuentaBancaria[]>([])
+  const [totalFacturasPendientes, setTotalFacturasPendientes] = useState(0)
+  const [totalSaldosBancarios, setTotalSaldosBancarios] = useState(0)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showSocioForm, setShowSocioForm] = useState(false)
@@ -54,6 +56,7 @@ export default function AportacionesPage() {
   const [formConcepto, setFormConcepto] = useState('')
   const [formMetodo, setFormMetodo] = useState('')
   const [formNotas, setFormNotas] = useState('')
+  const [formFechaCompromiso, setFormFechaCompromiso] = useState('')
 
   // Socio form
   const [newSocioNombre, setNewSocioNombre] = useState('')
@@ -63,14 +66,41 @@ export default function AportacionesPage() {
   const loadData = useCallback(async () => {
     if (!empresaId) return
     const supabase = createClient()
-    const [sociosRes, aportRes, cuentasRes] = await Promise.all([
+    const [sociosRes, aportRes, cuentasRes, facturasRes, cuentasAllRes] = await Promise.all([
       supabase.from('socios').select('*').eq('empresa_id', empresaId).eq('activo', true).order('nombre'),
       supabase.from('aportaciones').select('*, socios(nombre), cuentas_bancarias(nombre, banco)').eq('empresa_id', empresaId).order('fecha', { ascending: false }),
       supabase.from('cuentas_bancarias').select('*').eq('empresa_id', empresaId).eq('activa', true).order('nombre'),
+      // Facturas pendientes (no pagadas, no rechazadas)
+      supabase.from('facturas').select('total').eq('empresa_id', empresaId).not('estatus', 'in', '("pagada","rechazada")'),
+      // Get all accounts for latest balance
+      supabase.from('cuentas_bancarias').select('id').eq('empresa_id', empresaId).eq('activa', true),
     ])
     setSocios(sociosRes.data || [])
     setAportaciones(aportRes.data || [])
     setCuentas(cuentasRes.data || [])
+
+    // Sum pending invoices
+    const totalFact = (facturasRes.data || []).reduce((s, f) => s + (f.total || 0), 0)
+    setTotalFacturasPendientes(totalFact)
+
+    // Get latest balance per account
+    const cuentaIds = (cuentasAllRes.data || []).map(c => c.id)
+    let totalSaldos = 0
+    if (cuentaIds.length > 0) {
+      const saldoPromises = cuentaIds.map(async (cid) => {
+        const { data } = await supabase
+          .from('saldos_bancarios')
+          .select('saldo')
+          .eq('cuenta_id', cid)
+          .order('fecha', { ascending: false })
+          .limit(1)
+          .single()
+        return data?.saldo || 0
+      })
+      const saldos = await Promise.all(saldoPromises)
+      totalSaldos = saldos.reduce((s, v) => s + v, 0)
+    }
+    setTotalSaldosBancarios(totalSaldos)
     setLoading(false)
   }, [empresaId])
 
@@ -116,6 +146,7 @@ export default function AportacionesPage() {
       concepto: formConcepto.trim() || null,
       metodo_pago: formMetodo.trim() || null,
       notas: formNotas.trim() || null,
+      fecha_compromiso: formFechaCompromiso || null,
       estatus: 'pendiente',
     })
     if (error) { toast.error(error.message); return }
@@ -127,6 +158,7 @@ export default function AportacionesPage() {
     setFormConcepto('')
     setFormMetodo('')
     setFormNotas('')
+    setFormFechaCompromiso('')
     setShowForm(false)
     loadData()
   }
@@ -286,6 +318,69 @@ export default function AportacionesPage() {
         </Card>
       </div>
 
+      {/* Necesidad de aportación - auto-calculado */}
+      {(() => {
+        const faltante = totalFacturasPendientes - totalSaldosBancarios
+        const porSocio = socios.length > 0 ? faltante / socios.length : 0
+        return (
+          <Card className={faltante > 0 ? 'border-orange-200 bg-orange-50/50' : 'border-green-200 bg-green-50/50'}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calculator className="h-5 w-5" />
+                Necesidad de aportación
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Calculado automáticamente: facturas pendientes de pago − saldos bancarios actuales</p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Facturas pendientes</p>
+                  <p className="text-lg font-bold text-red-700">{formatMXN(totalFacturasPendientes)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Saldos bancarios</p>
+                  <p className="text-lg font-bold text-blue-700">{formatMXN(totalSaldosBancarios)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    {faltante > 0 ? 'Monto necesario' : 'Superávit'}
+                  </p>
+                  <p className={`text-lg font-bold ${faltante > 0 ? 'text-orange-700' : 'text-green-700'}`}>
+                    {faltante > 0 ? formatMXN(faltante) : formatMXN(Math.abs(faltante))}
+                  </p>
+                </div>
+              </div>
+              {faltante > 0 && socios.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-orange-200">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
+                    Aportación sugerida por socio (partes iguales):
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {socios.map(s => {
+                      const socioAportado = aportaciones
+                        .filter(a => a.socio_id === s.id && a.estatus === 'pendiente')
+                        .reduce((sum, a) => sum + a.monto, 0)
+                      const netoPorAportar = Math.max(0, porSocio - socioAportado)
+                      return (
+                        <div key={s.id} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-md border text-sm">
+                          <span className="font-medium">{s.nombre}:</span>
+                          {netoPorAportar > 0 ? (
+                            <span className="font-bold text-orange-700">{formatMXN(netoPorAportar)}</span>
+                          ) : (
+                            <span className="text-green-700 text-xs">Cubierto con pendientes</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })()}
+
       {/* Per-socio summary */}
       {socioTotals.length > 0 && (
         <div className="flex flex-wrap gap-3">
@@ -367,6 +462,74 @@ export default function AportacionesPage() {
         )
       })()}
 
+      {/* Solicitud de aportación */}
+      {userRole !== 'viewer' && socios.length > 0 && totalFacturasPendientes > totalSaldosBancarios && (
+        <Card className="border-blue-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Send className="h-5 w-5" />
+              Solicitud de aportación
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Genera aportaciones pendientes automáticas para cada socio con el monto necesario para cubrir las facturas
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label className="text-sm">Fecha compromiso</Label>
+                <Input
+                  type="date"
+                  id="solicitud-fecha"
+                  defaultValue={format(new Date(), 'yyyy-MM-dd')}
+                  className="w-[180px]"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-sm">Concepto</Label>
+                <Input
+                  id="solicitud-concepto"
+                  defaultValue="Solicitud de aportación"
+                  placeholder="Concepto"
+                  className="w-[250px]"
+                />
+              </div>
+              <Button
+                variant="outline"
+                className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                onClick={async () => {
+                  const faltante = totalFacturasPendientes - totalSaldosBancarios
+                  if (faltante <= 0) { toast.error('No hay faltante'); return }
+                  const porSocio = faltante / socios.length
+                  const fechaInput = (document.getElementById('solicitud-fecha') as HTMLInputElement)?.value || format(new Date(), 'yyyy-MM-dd')
+                  const conceptoInput = (document.getElementById('solicitud-concepto') as HTMLInputElement)?.value || 'Solicitud de aportación'
+
+                  const supabase = createClient()
+                  const inserts = socios.map(s => ({
+                    empresa_id: empresaId,
+                    socio_id: s.id,
+                    monto: Math.round(porSocio * 100) / 100,
+                    fecha: format(new Date(), 'yyyy-MM-dd'),
+                    tipo: 'a_cuenta' as const,
+                    concepto: conceptoInput,
+                    estatus: 'pendiente',
+                    fecha_compromiso: fechaInput,
+                    notas: `Auto-generado: Facturas pendientes ${formatMXN(totalFacturasPendientes)} - Saldos ${formatMXN(totalSaldosBancarios)} = ${formatMXN(faltante)}`,
+                  }))
+                  const { error } = await supabase.from('aportaciones').insert(inserts)
+                  if (error) { toast.error(error.message); return }
+                  toast.success(`Solicitud creada para ${socios.length} socio(s) por ${formatMXN(porSocio)} cada uno`)
+                  loadData()
+                }}
+              >
+                <Send className="h-4 w-4 mr-1" />
+                Crear solicitud para {socios.length} socio(s) — {formatMXN(Math.round(((totalFacturasPendientes - totalSaldosBancarios) / Math.max(socios.length, 1)) * 100) / 100)} c/u
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Add socio form */}
       {showSocioForm && (
         <Card>
@@ -427,9 +590,13 @@ export default function AportacionesPage() {
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Input placeholder="Concepto (opcional)" value={formConcepto} onChange={e => setFormConcepto(e.target.value)} />
                 <Input placeholder="Observaciones (opcional)" value={formNotas} onChange={e => setFormNotas(e.target.value)} />
+                <div className="space-y-1">
+                  <Label className="text-sm">Fecha compromiso (opcional)</Label>
+                  <Input type="date" value={formFechaCompromiso} onChange={e => setFormFechaCompromiso(e.target.value)} />
+                </div>
               </div>
               <Button type="submit"><Plus className="h-4 w-4 mr-1" /> Registrar aportación</Button>
             </form>
@@ -468,8 +635,8 @@ export default function AportacionesPage() {
                 <SortableHeader label="Monto" column="monto" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
                 <SortableHeader label="Fecha" column="fecha" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <TableHead>Tipo</TableHead>
+                <TableHead>Compromiso</TableHead>
                 <TableHead>Concepto</TableHead>
-                <TableHead>Observaciones</TableHead>
                 <SortableHeader label="Estatus" column="estatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <TableHead></TableHead>
               </TableRow>
@@ -497,8 +664,16 @@ export default function AportacionesPage() {
                         )
                       })()}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{a.concepto || '—'}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{a.notas || '—'}</TableCell>
+                    <TableCell className="text-sm">
+                      {a.fecha_compromiso ? (
+                        <span className={a.estatus === 'pendiente' && new Date(a.fecha_compromiso + 'T12:00:00') < new Date() ? 'text-red-600 font-medium' : 'text-muted-foreground'}>
+                          {format(new Date(a.fecha_compromiso + 'T12:00:00'), 'dd/MM/yy')}
+                        </span>
+                      ) : (
+                        a.estatus === 'pendiente' ? <span className="text-yellow-600 text-xs">Sin fecha</span> : '—'
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{a.concepto || '—'}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={STATUS_COLORS[a.estatus]}>
                         {a.estatus.charAt(0).toUpperCase() + a.estatus.slice(1)}
@@ -520,7 +695,7 @@ export default function AportacionesPage() {
                 )
               })}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No hay aportaciones</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No hay aportaciones</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
