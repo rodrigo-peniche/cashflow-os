@@ -15,7 +15,7 @@ import { es } from 'date-fns/locale'
 import type { Sucursal, CanalIngreso } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { DollarSign, Plus, ChevronLeft, ChevronRight, Settings, Download, X, RefreshCw, Save } from 'lucide-react'
+import { DollarSign, Plus, ChevronLeft, ChevronRight, Settings, Download, X, RefreshCw, Save, Eraser } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 const DIAS_SEMANA = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'] as const
@@ -280,7 +280,27 @@ export default function IngresosPage() {
   async function deleteCanal(id: string) {
     const supabase = createClient()
     await supabase.from('canales_ingreso').update({ activo: false }).eq('id', id)
+    // Also delete all ingresos for this canal in current date range
+    const endDate = format(addDays(new Date(startDate), numDays - 1), 'yyyy-MM-dd')
+    await supabase.from('ingresos_diarios').delete().eq('canal_id', id).gte('fecha', startDate).lte('fecha', endDate)
     toast.success('Canal eliminado')
+    loadData()
+  }
+
+  async function clearCanalData(sucId: string, canalId: string) {
+    const supabase = createClient()
+    // Delete all saved ingresos for this sucursal+canal in current date range
+    const endDate = format(addDays(new Date(startDate), numDays - 1), 'yyyy-MM-dd')
+    await supabase.from('ingresos_diarios').delete()
+      .eq('sucursal_id', sucId)
+      .eq('canal_id', canalId)
+      .gte('fecha', startDate)
+      .lte('fecha', endDate)
+    // Also clear local edits for this combination
+    const newEdits = { ...localEdits }
+    dates.forEach(d => { delete newEdits[getCellKey(sucId, canalId, d)] })
+    setLocalEdits(newEdits)
+    toast.success('Datos del canal limpiados')
     loadData()
   }
 
@@ -399,113 +419,6 @@ export default function IngresosPage() {
         </div>
       </div>
 
-      {/* Canales config - always visible, editable inline */}
-      {canales.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Canales de ingreso configurados</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 pr-2 font-medium text-muted-foreground">Canal</th>
-                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Frecuencia</th>
-                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Día depósito</th>
-                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Monto aprox.</th>
-                    <th className="text-center py-2 px-2 font-medium text-muted-foreground w-[80px]"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {canales.map(c => (
-                    <tr key={c.id} className="border-b border-dashed">
-                      <td className="py-1.5 pr-2 font-medium">{c.nombre}</td>
-                      <td className="py-1.5 px-2">
-                        {userRole !== 'viewer' ? (
-                          <Select
-                            value={c.frecuencia}
-                            onValueChange={async (v) => {
-                              const supabase = createClient()
-                              await supabase.from('canales_ingreso').update({ frecuencia: v }).eq('id', c.id)
-                              loadData()
-                            }}
-                          >
-                            <SelectTrigger className="h-8 w-[120px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {FRECUENCIAS_INGRESO.map(f => (
-                                <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span>{FRECUENCIAS_INGRESO.find(f => f.value === c.frecuencia)?.label}</span>
-                        )}
-                      </td>
-                      <td className="py-1.5 px-2">
-                        {userRole !== 'viewer' && c.frecuencia !== 'diario' ? (
-                          <Select
-                            value={c.dia_deposito || ''}
-                            onValueChange={async (v) => {
-                              const supabase = createClient()
-                              await supabase.from('canales_ingreso').update({ dia_deposito: v || null }).eq('id', c.id)
-                              loadData()
-                            }}
-                          >
-                            <SelectTrigger className="h-8 w-[120px]">
-                              <SelectValue placeholder="Seleccionar..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DIAS_SEMANA.map(d => (
-                                <SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : c.frecuencia === 'diario' ? (
-                          <span className="text-muted-foreground text-xs">N/A</span>
-                        ) : (
-                          <span>{c.dia_deposito ? c.dia_deposito.charAt(0).toUpperCase() + c.dia_deposito.slice(1) : '—'}</span>
-                        )}
-                      </td>
-                      <td className="py-1.5 px-2">
-                        {userRole !== 'viewer' ? (
-                          <Input
-                            type="number"
-                            className="h-8 w-[120px] text-sm"
-                            defaultValue={c.monto_aproximado || ''}
-                            placeholder="$0"
-                            onBlur={async (e) => {
-                              const val = Number(e.target.value) || null
-                              if (val !== c.monto_aproximado) {
-                                const supabase = createClient()
-                                await supabase.from('canales_ingreso').update({ monto_aproximado: val }).eq('id', c.id)
-                                loadData()
-                                toast.success(`Monto de ${c.nombre} actualizado`)
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span>{c.monto_aproximado ? formatMXN(c.monto_aproximado) : '—'}</span>
-                        )}
-                      </td>
-                      <td className="py-1.5 px-2 text-center">
-                        {userRole !== 'viewer' && (
-                          <button onClick={() => deleteCanal(c.id)} className="text-red-400 hover:text-red-600 p-1" title="Eliminar canal">
-                            <X className="h-4 w-4" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Grid */}
       {sucursales.length === 0 || canales.length === 0 ? (
         <Card>
@@ -522,7 +435,90 @@ export default function IngresosPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-bold">{suc.nombre}</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {/* Inline canal config for this sucursal */}
+              <div className="overflow-x-auto border rounded-md">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left py-1.5 px-2 font-medium text-muted-foreground">Canal</th>
+                      <th className="text-left py-1.5 px-2 font-medium text-muted-foreground">Frecuencia</th>
+                      <th className="text-left py-1.5 px-2 font-medium text-muted-foreground">Día depósito</th>
+                      <th className="text-left py-1.5 px-2 font-medium text-muted-foreground">Monto aprox.</th>
+                      <th className="text-center py-1.5 px-2 font-medium text-muted-foreground w-[60px]"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {canales.map(c => (
+                      <tr key={c.id} className="border-b last:border-b-0">
+                        <td className="py-1 px-2 font-medium text-sm">{c.nombre}</td>
+                        <td className="py-1 px-2">
+                          {userRole !== 'viewer' ? (
+                            <Select value={c.frecuencia} onValueChange={async (v) => {
+                              const supabase = createClient()
+                              await supabase.from('canales_ingreso').update({ frecuencia: v }).eq('id', c.id)
+                              loadData()
+                            }}>
+                              <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {FRECUENCIAS_INGRESO.map(f => (<SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span>{FRECUENCIAS_INGRESO.find(f => f.value === c.frecuencia)?.label}</span>
+                          )}
+                        </td>
+                        <td className="py-1 px-2">
+                          {userRole !== 'viewer' && c.frecuencia !== 'diario' ? (
+                            <Select value={c.dia_deposito || ''} onValueChange={async (v) => {
+                              const supabase = createClient()
+                              await supabase.from('canales_ingreso').update({ dia_deposito: v || null }).eq('id', c.id)
+                              loadData()
+                            }}>
+                              <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+                              <SelectContent>
+                                {DIAS_SEMANA.map(d => (<SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-muted-foreground">{c.frecuencia === 'diario' ? 'Todos' : c.dia_deposito || '—'}</span>
+                          )}
+                        </td>
+                        <td className="py-1 px-2">
+                          {userRole !== 'viewer' ? (
+                            <Input type="number" className="h-7 w-[100px] text-xs" defaultValue={c.monto_aproximado || ''} placeholder="$0"
+                              onBlur={async (e) => {
+                                const val = Number(e.target.value) || null
+                                if (val !== c.monto_aproximado) {
+                                  const supabase = createClient()
+                                  await supabase.from('canales_ingreso').update({ monto_aproximado: val }).eq('id', c.id)
+                                  loadData()
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span>{c.monto_aproximado ? formatMXN(c.monto_aproximado) : '—'}</span>
+                          )}
+                        </td>
+                        <td className="py-1 px-2 text-center">
+                          {userRole !== 'viewer' && (
+                            <div className="flex gap-1 justify-center">
+                              <button onClick={() => clearCanalData(suc.id, c.id)} className="text-orange-400 hover:text-orange-600 p-0.5" title="Limpiar datos de este canal">
+                                <Eraser className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => deleteCanal(c.id)} className="text-red-400 hover:text-red-600 p-0.5" title="Eliminar canal">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Data table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
