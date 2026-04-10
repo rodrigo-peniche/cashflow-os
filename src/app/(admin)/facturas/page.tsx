@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { MoneyInput } from '@/components/shared/money-input'
 import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil, Plus, FileUp } from 'lucide-react'
 import { SortableHeader } from '@/components/shared/sortable-header'
+import { ProveedorCombobox } from '@/components/shared/proveedor-combobox'
 
 // ─── CFDI XML Parser ───────────────────────────────────────────────
 interface CfdiData {
@@ -594,16 +595,11 @@ export default function FacturasPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Proveedor *</Label>
-                  <Select value={formProveedorId} onValueChange={setFormProveedorId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar proveedor..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {proveedores.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>{p.nombre_empresa} ({p.rfc})</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <ProveedorCombobox
+                    proveedores={proveedores}
+                    value={formProveedorId}
+                    onValueChange={setFormProveedorId}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Fecha factura *</Label>
