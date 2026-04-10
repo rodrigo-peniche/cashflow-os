@@ -15,7 +15,7 @@ import { es } from 'date-fns/locale'
 import type { Sucursal, CanalIngreso } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { DollarSign, Plus, ChevronLeft, ChevronRight, Settings, Download, X } from 'lucide-react'
+import { DollarSign, Plus, ChevronLeft, ChevronRight, Settings, Download, X, RefreshCw, Save } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 const DIAS_SEMANA = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'] as const
@@ -48,6 +48,8 @@ export default function IngresosPage() {
   })
   const [numDays, setNumDays] = useState(7)
   const [showConfig, setShowConfig] = useState(false)
+  const [localEdits, setLocalEdits] = useState<Record<string, number>>({}) // local changes not yet saved
+  const [saving, setSaving] = useState(false)
 
   // Config form state
   const [newSucursal, setNewSucursal] = useState('')
@@ -102,41 +104,63 @@ export default function IngresosPage() {
     return `${sucId}_${canalId}_${fecha}`
   }
 
-  async function handleCellSave(sucId: string, canalId: string, fecha: string, value: string) {
-    const monto = Number(value) || 0
+  function getCellValue(sucId: string, canalId: string, fecha: string): number {
     const key = getCellKey(sucId, canalId, fecha)
-    const existing = ingresos[key]
+    // Priority: local edit > saved value > monto_aproximado from canal
+    if (localEdits[key] !== undefined) return localEdits[key]
+    if (ingresos[key]) return ingresos[key].monto
+    // Default: use monto_aproximado from canal config
+    const canal = canales.find(c => c.id === canalId)
+    return canal?.monto_aproximado || 0
+  }
 
-    // Skip if no change
-    if (existing && existing.monto === monto) return
+  function handleCellEdit(sucId: string, canalId: string, fecha: string, value: string) {
+    const key = getCellKey(sucId, canalId, fecha)
+    const monto = Number(value) || 0
+    setLocalEdits(prev => ({ ...prev, [key]: monto }))
+    // mark changed
+  }
 
+  async function saveAllChanges() {
+    setSaving(true)
     const supabase = createClient()
-    if (existing?.id) {
-      if (monto === 0) {
-        // Delete the record if set to 0
-        await supabase.from('ingresos_diarios').delete().eq('id', existing.id)
-        setIngresos(prev => {
-          const copy = { ...prev }
-          delete copy[key]
-          return copy
-        })
-      } else {
-        await supabase.from('ingresos_diarios').update({ monto }).eq('id', existing.id)
-        setIngresos(prev => ({ ...prev, [key]: { ...existing, monto } }))
-      }
-    } else if (monto > 0) {
-      const { data } = await supabase.from('ingresos_diarios').insert({
-        empresa_id: empresaId,
-        sucursal_id: sucId,
-        canal_id: canalId,
-        fecha,
-        monto,
-      }).select('id').single()
-      if (data) {
-        setIngresos(prev => ({ ...prev, [key]: { id: data.id, monto } }))
+    let savedCount = 0
+
+    for (const suc of sucursales) {
+      for (const canal of canales) {
+        for (const fecha of dates) {
+          const key = getCellKey(suc.id, canal.id, fecha)
+          const currentVal = getCellValue(suc.id, canal.id, fecha)
+          const existing = ingresos[key]
+
+          // Only save if there's a value > 0 or an existing record to update/delete
+          if (existing?.id) {
+            if (currentVal === 0) {
+              await supabase.from('ingresos_diarios').delete().eq('id', existing.id)
+              savedCount++
+            } else if (currentVal !== existing.monto) {
+              await supabase.from('ingresos_diarios').update({ monto: currentVal }).eq('id', existing.id)
+              savedCount++
+            }
+          } else if (currentVal > 0) {
+            await supabase.from('ingresos_diarios').insert({
+              empresa_id: empresaId,
+              sucursal_id: suc.id,
+              canal_id: canal.id,
+              fecha,
+              monto: currentVal,
+            })
+            savedCount++
+          }
+        }
       }
     }
-    toast.success('Guardado')
+
+    setLocalEdits({})
+    // changes saved
+    setSaving(false)
+    toast.success(`${savedCount} registros guardados — se reflejarán en el Dashboard`)
+    loadData()
   }
 
   async function addSucursal(e?: React.FormEvent) {
@@ -238,11 +262,11 @@ export default function IngresosPage() {
   }
 
   function getSucursalTotal(sucId: string, fecha: string): number {
-    return canales.reduce((sum, c) => sum + (ingresos[getCellKey(sucId, c.id, fecha)]?.monto || 0), 0)
+    return canales.reduce((sum, c) => sum + getCellValue(sucId, c.id, fecha), 0)
   }
 
   function getCanalTotal(sucId: string, canalId: string): number {
-    return dates.reduce((sum, d) => sum + (ingresos[getCellKey(sucId, canalId, d)]?.monto || 0), 0)
+    return dates.reduce((sum, d) => sum + getCellValue(sucId, canalId, d), 0)
   }
 
   function getSucursalGrandTotal(sucId: string): number {
@@ -264,7 +288,7 @@ export default function IngresosPage() {
         const row: Record<string, unknown> = { Sucursal: suc.nombre, Canal: canal.nombre }
         dates.forEach(d => {
           const label = format(new Date(d + 'T12:00:00'), 'dd/MM', { locale: es })
-          row[label] = ingresos[getCellKey(suc.id, canal.id, d)]?.monto || 0
+          row[label] = getCellValue(suc.id, canal.id, d)
         })
         row['Total'] = getCanalTotal(suc.id, canal.id)
         rows.push(row)
@@ -291,8 +315,22 @@ export default function IngresosPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><DollarSign className="h-6 w-6" /> Ingresos Diarios</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><DollarSign className="h-6 w-6" /> Ingresos Aproximados</h1>
         <div className="flex gap-2">
+          {userRole !== 'viewer' && sucursales.length > 0 && canales.length > 0 && (
+            <Button
+              size="sm"
+              onClick={saveAllChanges}
+              disabled={saving}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {saving ? (
+                <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Guardando...</>
+              ) : (
+                <><Save className="h-4 w-4 mr-2" /> Guardar y actualizar Dashboard</>
+              )}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={exportToExcel}>
             <Download className="h-4 w-4 mr-2" /> Excel
           </Button>
@@ -303,6 +341,9 @@ export default function IngresosPage() {
           )}
         </div>
       </div>
+      <p className="text-sm text-muted-foreground -mt-4">
+        Los montos configurados en los canales se pre-llenan automáticamente. Ajusta y presiona &quot;Guardar&quot; para reflejar en el Dashboard.
+      </p>
 
       {/* Date navigation */}
       <div className="flex items-center gap-3">
@@ -494,18 +535,20 @@ export default function IngresosPage() {
                           </div>
                         </td>
                         {dates.map(d => {
+                          const val = getCellValue(suc.id, canal.id, d)
                           const key = getCellKey(suc.id, canal.id, d)
-                          const val = ingresos[key]?.monto || 0
+                          const isFromConfig = !ingresos[key] && localEdits[key] === undefined && val > 0
                           return (
                             <td key={d} className="py-1 px-1">
                               <Input
                                 type="number"
-                                className="h-8 text-center text-sm w-full min-w-[70px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                className={`h-8 text-center text-sm w-full min-w-[70px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isFromConfig ? 'text-blue-500 italic' : ''}`}
                                 defaultValue={val || ''}
-                                onBlur={(e) => handleCellSave(suc.id, canal.id, d, e.target.value)}
+                                key={`${key}-${val}`}
+                                onBlur={(e) => handleCellEdit(suc.id, canal.id, d, e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
-                                    handleCellSave(suc.id, canal.id, d, (e.target as HTMLInputElement).value)
+                                    handleCellEdit(suc.id, canal.id, d, (e.target as HTMLInputElement).value)
                                     ;(e.target as HTMLInputElement).blur()
                                   }
                                 }}

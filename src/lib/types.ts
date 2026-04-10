@@ -120,10 +120,12 @@ export interface PagoProgramado {
   dia_del_mes: number | null
   proxima_fecha: string
   cuenta_id: string | null
+  proveedor_id: string | null
   activo: boolean
   notas: string | null
   created_at: string
   cuentas_bancarias?: CuentaBancaria
+  proveedores?: { id: string; nombre_empresa: string }
 }
 
 export interface FlujoTentativo {

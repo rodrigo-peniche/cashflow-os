@@ -21,6 +21,7 @@ import type { PagoProgramado } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { ExportButton } from '@/components/shared/export-button'
 import { CalendarClock, Plus, Trash2 } from 'lucide-react'
+import type { Proveedor } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { useTableSort } from '@/lib/hooks/use-table-sort'
 import { SortableHeader } from '@/components/shared/sortable-header'
@@ -28,6 +29,7 @@ import { SortableHeader } from '@/components/shared/sortable-header'
 export default function PagosProgramadosPage() {
   const { empresaId, userRole } = useEmpresa()
   const [pagos, setPagos] = useState<PagoProgramado[]>([])
+  const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
 
@@ -42,18 +44,27 @@ export default function PagosProgramadosPage() {
   const [diaMes, setDiaMes] = useState<number | undefined>()
   const [proximaFecha, setProximaFecha] = useState('')
   const [cuentaId, setCuentaId] = useState('')
+  const [proveedorId, setProveedorId] = useState('')
   const [notas, setNotas] = useState('')
 
   const loadData = useCallback(async () => {
     if (!empresaId) return
     const supabase = createClient()
-    const { data } = await supabase
-      .from('pagos_programados')
-      .select('*, cuentas_bancarias(nombre, banco)')
-      .eq('empresa_id', empresaId)
-      .eq('activo', true)
-      .order('proxima_fecha')
+    const [{ data }, { data: provs }] = await Promise.all([
+      supabase
+        .from('pagos_programados')
+        .select('*, cuentas_bancarias(nombre, banco), proveedores(id, nombre_empresa)')
+        .eq('empresa_id', empresaId)
+        .eq('activo', true)
+        .order('proxima_fecha'),
+      supabase
+        .from('proveedores')
+        .select('*')
+        .eq('empresa_id', empresaId)
+        .order('nombre_empresa'),
+    ])
     setPagos(data || [])
+    setProveedores(provs || [])
     setLoading(false)
   }, [empresaId])
 
@@ -62,7 +73,7 @@ export default function PagosProgramadosPage() {
   function resetForm() {
     setNombre(''); setCategoria(''); setEsFijo(true); setMonto(0)
     setMontoMin(0); setMontoMax(0); setFrecuencia(''); setDiaMes(undefined)
-    setProximaFecha(''); setCuentaId(''); setNotas('')
+    setProximaFecha(''); setCuentaId(''); setProveedorId(''); setNotas('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -80,6 +91,7 @@ export default function PagosProgramadosPage() {
       dia_del_mes: diaMes || null,
       proxima_fecha: proximaFecha,
       cuenta_id: cuentaId || null,
+      proveedor_id: proveedorId && proveedorId !== 'none' ? proveedorId : null,
       notas: notas || null,
     })
     if (error) { toast.error(error.message); return }
@@ -210,7 +222,7 @@ export default function PagosProgramadosPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label>Frecuencia *</Label>
                   <Select value={frecuencia} onValueChange={setFrecuencia}>
@@ -223,6 +235,16 @@ export default function PagosProgramadosPage() {
                 <div className="space-y-2">
                   <Label>Próxima fecha *</Label>
                   <Input type="date" value={proximaFecha} onChange={(e) => setProximaFecha(e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Proveedor</Label>
+                  <Select value={proveedorId} onValueChange={setProveedorId}>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar proveedor..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin proveedor</SelectItem>
+                      {proveedores.map((p) => <SelectItem key={p.id} value={p.id}>{p.nombre_empresa}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Cuenta bancaria</Label>
@@ -258,6 +280,7 @@ export default function PagosProgramadosPage() {
                 <SortableHeader label="Frecuencia" column="frecuencia" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <SortableHeader label="Monto" column="monto" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="text-right" />
                 <SortableHeader label="Próxima fecha" column="proxima_fecha" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <TableHead>Proveedor</TableHead>
                 <TableHead>Cuenta</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -279,6 +302,9 @@ export default function PagosProgramadosPage() {
                   </TableCell>
                   <TableCell>{format(new Date(p.proxima_fecha + 'T12:00:00'), 'dd/MM/yyyy')}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
+                    {(p as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || '—'}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
                     {(p as unknown as Record<string, Record<string, string>>).cuentas_bancarias?.nombre || '—'}
                   </TableCell>
                   <TableCell>
@@ -291,7 +317,7 @@ export default function PagosProgramadosPage() {
                 </TableRow>
               ))}
               {pagos.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No hay pagos programados</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No hay pagos programados</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

@@ -46,6 +46,7 @@ export const config = {
     '/flujos/:path*',
     '/usuarios/:path*',
     '/empresas/:path*',
+    '/sucursales/:path*',
     '/ingresos/:path*',
     '/aportaciones/:path*',
     '/gastos-tarjeta/:path*',
