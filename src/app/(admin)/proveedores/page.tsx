@@ -286,11 +286,11 @@ export default function ProveedoresPage() {
                         <TableCell className="font-mono text-xs">{p.id_banco || '—'}</TableCell>
                         <TableCell className="font-medium">{p.nombre_empresa}</TableCell>
                         <TableCell className="font-mono text-sm">{p.rfc}</TableCell>
-                        <TableCell>
-                          <div>{p.contacto_nombre}</div>
-                          <div className="text-xs text-muted-foreground">{p.contacto_email}</div>
+                        <TableCell className="max-w-[200px]">
+                          <div className="truncate">{p.contacto_nombre}</div>
+                          <div className="text-xs text-muted-foreground truncate">{p.contacto_email}</div>
                         </TableCell>
-                        <TableCell><Badge variant="outline">{p.banco}</Badge></TableCell>
+                        <TableCell className="pl-2"><Badge variant="outline">{p.banco}</Badge></TableCell>
                         <TableCell>{p.dias_credito > 0 ? `${p.dias_credito} días` : '—'}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={p.modalidad_pago === 'factura_primero' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}>
