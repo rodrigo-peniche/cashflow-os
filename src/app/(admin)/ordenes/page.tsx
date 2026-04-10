@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -20,6 +20,7 @@ import { ExcelImport } from '@/components/shared/excel-import'
 import { ExportButton } from '@/components/shared/export-button'
 import { FileText, Plus } from 'lucide-react'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { ProveedorCombobox } from '@/components/shared/proveedor-combobox'
 import { useTableSort } from '@/lib/hooks/use-table-sort'
 import { SortableHeader } from '@/components/shared/sortable-header'
 
@@ -145,12 +146,11 @@ export default function OrdenesPage() {
               <div className="space-y-2"><Label>Número OC *</Label><Input value={numeroOc} onChange={(e) => setNumeroOc(e.target.value)} required /></div>
               <div className="space-y-2">
                 <Label>Proveedor *</Label>
-                <Select value={proveedorId} onValueChange={setProveedorId}>
-                  <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-                  <SelectContent>
-                    {proveedores.map((p) => <SelectItem key={p.id} value={p.id}>{p.nombre_empresa}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <ProveedorCombobox
+                  proveedores={proveedores}
+                  value={proveedorId}
+                  onValueChange={setProveedorId}
+                />
               </div>
               <div className="space-y-2"><Label>Monto total *</Label><MoneyInput value={montoTotal} onChange={setMontoTotal} /></div>
               <div className="space-y-2"><Label>Fecha emisión *</Label><Input type="date" value={fechaEmision} onChange={(e) => setFechaEmision(e.target.value)} required /></div>

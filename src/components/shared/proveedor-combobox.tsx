@@ -6,10 +6,15 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import type { Proveedor } from '@/lib/types'
+
+interface ProveedorOption {
+  id: string
+  nombre_empresa: string
+  rfc?: string
+}
 
 interface ProveedorComboboxProps {
-  proveedores: Proveedor[]
+  proveedores: ProveedorOption[]
   value: string
   onValueChange: (value: string) => void
   placeholder?: string
@@ -40,7 +45,7 @@ export function ProveedorCombobox({ proveedores, value, onValueChange, placehold
               {proveedores.map((p) => (
                 <CommandItem
                   key={p.id}
-                  value={`${p.nombre_empresa} ${p.rfc}`}
+                  value={`${p.nombre_empresa} ${p.rfc || ''}`}
                   onSelect={() => {
                     onValueChange(p.id)
                     setOpen(false)
@@ -48,7 +53,7 @@ export function ProveedorCombobox({ proveedores, value, onValueChange, placehold
                 >
                   <Check className={cn('mr-2 h-4 w-4', value === p.id ? 'opacity-100' : 'opacity-0')} />
                   <span className="truncate">{p.nombre_empresa}</span>
-                  <span className="ml-auto text-xs text-muted-foreground">{p.rfc}</span>
+                  {p.rfc && <span className="ml-auto text-xs text-muted-foreground">{p.rfc}</span>}
                 </CommandItem>
               ))}
             </CommandGroup>

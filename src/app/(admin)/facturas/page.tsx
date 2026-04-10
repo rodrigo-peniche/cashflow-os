@@ -1069,16 +1069,12 @@ function FacturaDetailPanel({
           )}
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <Select onValueChange={(v) => onAssignProveedor(factura.id, v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar proveedor existente..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {proveedores.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.nombre_empresa} ({p.rfc})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ProveedorCombobox
+                proveedores={proveedores}
+                value=""
+                onValueChange={(v) => onAssignProveedor(factura.id, v)}
+                placeholder="Seleccionar proveedor existente..."
+              />
             </div>
             <Button variant="outline" size="sm" onClick={() => setShowNewProv(!showNewProv)}>
               <UserPlus className="h-4 w-4 mr-1" /> Crear nuevo
