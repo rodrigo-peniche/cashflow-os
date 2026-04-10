@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatMXN } from '@/lib/constants'
 import { toast } from 'sonner'
 import { addDays, format, differenceInDays } from 'date-fns'
-import type { Factura, Proveedor } from '@/lib/types'
+import type { Factura, Proveedor, Sucursal, FacturaDistribucion } from '@/lib/types'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { ExportButton } from '@/components/shared/export-button'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
@@ -168,16 +168,20 @@ export default function FacturasPage() {
   const [formXmlUrl, setFormXmlUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [importMode, setImportMode] = useState<'manual' | 'xml' | null>(null)
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
+  const [formSucursalId, setFormSucursalId] = useState('')
 
   const loadData = useCallback(async () => {
     if (!empresaId) return
     const supabase = createClient()
-    const [facturasRes, provsRes] = await Promise.all([
-      supabase.from('facturas').select('*, proveedores(nombre_empresa), ordenes_compra(numero_oc)').eq('empresa_id', empresaId).order('created_at', { ascending: false }),
+    const [facturasRes, provsRes, sucRes] = await Promise.all([
+      supabase.from('facturas').select('*, proveedores(nombre_empresa), ordenes_compra(numero_oc), sucursales(id, nombre)').eq('empresa_id', empresaId).order('created_at', { ascending: false }),
       supabase.from('proveedores').select('*').eq('empresa_id', empresaId).eq('activo', true).order('nombre_empresa'),
+      supabase.from('sucursales').select('*').eq('empresa_id', empresaId).eq('activa', true).order('nombre'),
     ])
     setFacturas(facturasRes.data || [])
     setProveedores(provsRes.data || [])
+    setSucursales(sucRes.data || [])
     setLoading(false)
   }, [empresaId])
 
@@ -196,7 +200,7 @@ export default function FacturasPage() {
   function resetForm() {
     setFormNumero(''); setFormProveedorId(''); setFormFecha(format(new Date(), 'yyyy-MM-dd'))
     setFormDiasCredito(0); setFormTotal(0); setFormTipoIva('16'); setFormNotas('')
-    setFormPdfUrl(''); setFormXmlUrl(''); setImportMode(null)
+    setFormPdfUrl(''); setFormXmlUrl(''); setImportMode(null); setFormSucursalId('')
   }
 
   async function handleNewFactura(e: React.FormEvent) {
@@ -224,6 +228,7 @@ export default function FacturasPage() {
     const { error } = await supabase.from('facturas').insert({
       empresa_id: empresaId,
       proveedor_id: formProveedorId,
+      sucursal_id: formSucursalId || null,
       numero_factura: formNumero.trim(),
       fecha_factura: formFecha,
       dias_credito: formDiasCredito,
@@ -588,7 +593,7 @@ export default function FacturasPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleNewFactura} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label># Factura *</Label>
                   <Input value={formNumero} onChange={(e) => setFormNumero(e.target.value)} placeholder="Ej: A-001" required />
@@ -600,6 +605,16 @@ export default function FacturasPage() {
                     value={formProveedorId}
                     onValueChange={setFormProveedorId}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label>Sucursal</Label>
+                  <Select value={formSucursalId} onValueChange={setFormSucursalId}>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar sucursal..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin sucursal</SelectItem>
+                      {sucursales.map(s => (<SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Fecha factura *</Label>
@@ -710,6 +725,7 @@ export default function FacturasPage() {
                   <TableHead className="w-8"></TableHead>
                   <SortableHeader label="# Factura" column="numero_factura" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Proveedor" column="proveedor" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <TableHead>Sucursal</TableHead>
                   <SortableHeader label="Fecha" column="fecha_factura" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Vencimiento" column="fecha_vencimiento" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Situación" column="situacion" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
@@ -739,6 +755,9 @@ export default function FacturasPage() {
                             <span className="text-orange-600 text-sm">Sin proveedor</span>
                           )}
                         </TableCell>
+                        <TableCell className="text-xs">
+                          {(f as unknown as Record<string, Record<string, string>>).sucursales?.nombre || <span className="text-muted-foreground">—</span>}
+                        </TableCell>
                         <TableCell>{format(new Date(f.fecha_factura + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
                         <TableCell>
                           {(f.fecha_vencimiento || f.fecha_factura) ? format(new Date((f.fecha_vencimiento || f.fecha_factura) + 'T12:00:00'), 'dd/MM/yy') : '—'}
@@ -764,10 +783,11 @@ export default function FacturasPage() {
                       </TableRow>
                       {isExpanded && (
                         <TableRow>
-                          <TableCell colSpan={9} className="bg-muted/30 p-4" onClick={(e) => e.stopPropagation()}>
+                          <TableCell colSpan={10} className="bg-muted/30 p-4" onClick={(e) => e.stopPropagation()}>
                             <FacturaDetailPanel
                               factura={f}
                               proveedores={proveedores}
+                              sucursales={sucursales}
                               userRole={userRole}
                               onSaveObservaciones={saveObservaciones}
                               onSaveComprobante={saveComprobante}
@@ -788,7 +808,7 @@ export default function FacturasPage() {
                   )
                 })}
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No hay facturas</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No hay facturas</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -802,6 +822,7 @@ export default function FacturasPage() {
 function FacturaDetailPanel({
   factura,
   proveedores,
+  sucursales,
   userRole,
   onSaveObservaciones,
   onSaveComprobante,
@@ -817,6 +838,7 @@ function FacturaDetailPanel({
 }: {
   factura: FacturaExtended
   proveedores: Proveedor[]
+  sucursales: Sucursal[]
   userRole: string | null
   onSaveObservaciones: (id: string, obs: string) => void
   onSaveComprobante: (id: string, url: string) => void
@@ -837,6 +859,67 @@ function FacturaDetailPanel({
   const [newProvRfc, setNewProvRfc] = useState('')
   const [creatingProv, setCreatingProv] = useState(false)
   const [customDate, setCustomDate] = useState(factura.fecha_programada_pago || '')
+  const [distribuciones, setDistribuciones] = useState<FacturaDistribucion[]>([])
+  const [showSplit, setShowSplit] = useState(false)
+  const [splitRows, setSplitRows] = useState<{ sucursal_id: string; monto: number }[]>([])
+
+  // Load distribuciones
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.from('factura_distribuciones')
+      .select('*, sucursales(id, nombre)')
+      .eq('factura_id', factura.id)
+      .then(({ data }) => {
+        setDistribuciones(data || [])
+      })
+  }, [factura.id])
+
+  async function updateSucursal(sucursalId: string) {
+    const supabase = createClient()
+    await supabase.from('facturas').update({ sucursal_id: sucursalId === 'none' ? null : sucursalId }).eq('id', factura.id)
+    toast.success('Sucursal actualizada')
+    onReload()
+  }
+
+  function initSplit() {
+    if (distribuciones.length > 0) {
+      setSplitRows(distribuciones.map(d => ({ sucursal_id: d.sucursal_id, monto: d.monto })))
+    } else if (sucursales.length > 0) {
+      const montoEach = Math.round((factura.total / sucursales.length) * 100) / 100
+      setSplitRows(sucursales.map(s => ({ sucursal_id: s.id, monto: montoEach })))
+    }
+    setShowSplit(true)
+  }
+
+  async function saveSplit() {
+    const totalSplit = splitRows.reduce((s, r) => s + r.monto, 0)
+    const diff = Math.abs(totalSplit - factura.total)
+    if (diff > 0.02) {
+      toast.error(`La suma (${formatMXN(totalSplit)}) no coincide con el total (${formatMXN(factura.total)})`)
+      return
+    }
+    const supabase = createClient()
+    // Delete existing
+    await supabase.from('factura_distribuciones').delete().eq('factura_id', factura.id)
+    // Insert new
+    const rows = splitRows.filter(r => r.monto > 0).map(r => ({
+      factura_id: factura.id,
+      sucursal_id: r.sucursal_id,
+      monto: r.monto,
+      porcentaje: Math.round((r.monto / factura.total) * 10000) / 100,
+    }))
+    if (rows.length > 0) {
+      await supabase.from('factura_distribuciones').insert(rows)
+    }
+    // Clear single sucursal_id since it's now split
+    await supabase.from('facturas').update({ sucursal_id: null }).eq('id', factura.id)
+    toast.success('Distribución guardada')
+    setShowSplit(false)
+    onReload()
+    // Reload distribuciones
+    const { data } = await supabase.from('factura_distribuciones').select('*, sucursales(id, nombre)').eq('factura_id', factura.id)
+    setDistribuciones(data || [])
+  }
 
   async function handleCreateProveedor() {
     if (!newProvNombre.trim() || !newProvRfc.trim()) {
@@ -1045,6 +1128,113 @@ function FacturaDetailPanel({
           </div>
         )}
       </div>
+
+      {/* Sucursal assignment and split */}
+      {userRole !== 'viewer' && sucursales.length > 0 && (
+        <div className="p-3 rounded-md border border-indigo-200 bg-indigo-50 space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-indigo-800 font-medium">Sucursal</Label>
+            <div className="flex gap-2">
+              {distribuciones.length === 0 && (
+                <Select
+                  value={factura.sucursal_id || 'none'}
+                  onValueChange={updateSucursal}
+                >
+                  <SelectTrigger className="h-8 w-[180px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin sucursal</SelectItem>
+                    {sucursales.map(s => (<SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+              )}
+              {sucursales.length > 1 && (
+                <Button variant="outline" size="sm" onClick={initSplit} className="text-indigo-700 border-indigo-300">
+                  Dividir gasto
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Show existing distribuciones */}
+          {distribuciones.length > 0 && !showSplit && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-indigo-700">Distribución actual:</p>
+              {distribuciones.map(d => (
+                <div key={d.id} className="flex items-center justify-between text-sm">
+                  <span>{(d as unknown as Record<string, Record<string, string>>).sucursales?.nombre}</span>
+                  <span className="font-medium">{formatMXN(d.monto)} ({d.porcentaje}%)</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Split editor */}
+          {showSplit && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-indigo-700">
+                Dividir {formatMXN(factura.total)} entre sucursales:
+              </p>
+              {splitRows.map((row, idx) => {
+                return (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Select value={row.sucursal_id} onValueChange={(v) => {
+                      const newRows = [...splitRows]
+                      newRows[idx].sucursal_id = v
+                      setSplitRows(newRows)
+                    }}>
+                      <SelectTrigger className="h-8 w-[160px] text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {sucursales.map(s => (<SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="h-8 w-[120px] text-sm"
+                      value={row.monto}
+                      onChange={(e) => {
+                        const newRows = [...splitRows]
+                        newRows[idx].monto = Number(e.target.value) || 0
+                        setSplitRows(newRows)
+                      }}
+                    />
+                    <span className="text-xs text-indigo-600">
+                      {factura.total > 0 ? `${Math.round((row.monto / factura.total) * 100)}%` : '0%'}
+                    </span>
+                    <button
+                      onClick={() => setSplitRows(splitRows.filter((_, i) => i !== idx))}
+                      className="text-red-400 hover:text-red-600"
+                    >
+                      <XCircle className="h-4 w-4" />
+                    </button>
+                  </div>
+                )
+              })}
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setSplitRows([...splitRows, { sucursal_id: sucursales[0]?.id || '', monto: 0 }])}>
+                    <Plus className="h-3 w-3 mr-1" /> Agregar fila
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    // Dividir equitativamente
+                    const montoEach = Math.round((factura.total / splitRows.length) * 100) / 100
+                    setSplitRows(splitRows.map(r => ({ ...r, monto: montoEach })))
+                  }}>
+                    Dividir partes iguales
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm font-medium ${Math.abs(splitRows.reduce((s, r) => s + r.monto, 0) - factura.total) < 0.02 ? 'text-green-700' : 'text-red-600'}`}>
+                    Suma: {formatMXN(splitRows.reduce((s, r) => s + r.monto, 0))}
+                  </span>
+                  <Button size="sm" onClick={saveSplit} className="bg-indigo-600 hover:bg-indigo-700">Guardar</Button>
+                  <Button variant="outline" size="sm" onClick={() => setShowSplit(false)}>Cancelar</Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Observaciones - always visible */}
       {factura.observaciones && (

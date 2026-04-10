@@ -66,6 +66,7 @@ export interface Factura {
   empresa_id: string
   proveedor_id: string
   orden_compra_id: string | null
+  sucursal_id: string | null
   numero_factura: string
   fecha_factura: string
   dias_credito: number
@@ -83,6 +84,17 @@ export interface Factura {
   created_at: string
   proveedores?: Proveedor
   ordenes_compra?: OrdenCompra
+  sucursales?: { id: string; nombre: string }
+}
+
+export interface FacturaDistribucion {
+  id: string
+  factura_id: string
+  sucursal_id: string
+  monto: number
+  porcentaje: number | null
+  created_at: string
+  sucursales?: { id: string; nombre: string }
 }
 
 export interface CuentaBancaria {
