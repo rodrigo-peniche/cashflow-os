@@ -296,9 +296,9 @@ export default function IngresosPage() {
       .eq('canal_id', canalId)
       .gte('fecha', startDate)
       .lte('fecha', endDate)
-    // Also clear local edits for this combination
+    // Set local edits to 0 so they don't fall back to monto_aproximado
     const newEdits = { ...localEdits }
-    dates.forEach(d => { delete newEdits[getCellKey(sucId, canalId, d)] })
+    dates.forEach(d => { newEdits[getCellKey(sucId, canalId, d)] = 0 })
     setLocalEdits(newEdits)
     toast.success('Datos del canal limpiados')
     loadData()
@@ -516,6 +516,38 @@ export default function IngresosPage() {
                     ))}
                   </tbody>
                 </table>
+                {/* Inline add canal */}
+                {userRole !== 'viewer' && (
+                  <form onSubmit={addCanal} className="flex gap-2 items-center mt-2 pt-2 border-t border-dashed">
+                    <Select value={newCanal} onValueChange={setNewCanal}>
+                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue placeholder="Agregar canal..." /></SelectTrigger>
+                      <SelectContent>
+                        {CANALES_PREDEFINIDOS.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    {newCanal === 'Otro' && (
+                      <Input placeholder="Nombre..." value={newCanalCustom} onChange={(e) => setNewCanalCustom(e.target.value)} className="h-7 w-[120px] text-xs" />
+                    )}
+                    <Select value={newCanalFrecuencia} onValueChange={setNewCanalFrecuencia}>
+                      <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {FRECUENCIAS_INGRESO.map(f => (<SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    {newCanalFrecuencia !== 'diario' && (
+                      <Select value={newCanalDia} onValueChange={setNewCanalDia}>
+                        <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue placeholder="Día..." /></SelectTrigger>
+                        <SelectContent>
+                          {DIAS_SEMANA.map(d => (<SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Input placeholder="Monto aprox." value={newCanalMonto} onChange={(e) => setNewCanalMonto(e.target.value)} className="h-7 w-[100px] text-xs" type="number" />
+                    <Button type="submit" size="sm" variant="outline" className="h-7 text-xs px-2">
+                      <Plus className="h-3 w-3 mr-1" /> Agregar
+                    </Button>
+                  </form>
+                )}
               </div>
 
               {/* Data table */}
