@@ -13,6 +13,8 @@ import {
 } from 'recharts'
 import type { FlujoDiario, FlujoDiarioItem } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -96,24 +98,25 @@ export default function DashboardPage() {
   const [overdue, setOverdue] = useState<OverdueData>({ total: 0, items: [] })
   const [loading, setLoading] = useState(true)
   const [showUpcoming, setShowUpcoming] = useState(true)
+  const [numDias, setNumDias] = useState(15)
   const { empresaId } = useEmpresa()
 
   useEffect(() => {
     if (!empresaId) return
-    fetch('/api/flujo', { credentials: 'include' })
+    setLoading(true)
+    fetch(`/api/flujo?dias=${numDias}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((data) => {
         if (data.days && Array.isArray(data.days)) {
           setFlujo(data.days)
           setOverdue(data.overdue || { total: 0, items: [] })
         } else if (Array.isArray(data)) {
-          // backwards compat
           setFlujo(data)
         }
         setLoading(false)
       })
       .catch(() => setLoading(false))
-  }, [empresaId])
+  }, [empresaId, numDias])
 
   if (loading) {
     return (
@@ -188,7 +191,7 @@ export default function DashboardPage() {
 
     const wb = XLSX.utils.book_new()
     const ws1 = XLSX.utils.json_to_sheet(flowRows)
-    XLSX.utils.book_append_sheet(wb, ws1, 'Flujo 15 días')
+    XLSX.utils.book_append_sheet(wb, ws1, `Flujo ${numDias} días`)
 
     if (overdueRows.length > 0) {
       const ws2 = XLSX.utils.json_to_sheet(overdueRows)
@@ -205,11 +208,40 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Dashboard — Flujo de Efectivo 15 Días</h1>
-        <Button variant="outline" size="sm" onClick={exportToExcel}>
-          <Download className="h-4 w-4 mr-2" /> Exportar Excel
-        </Button>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl font-bold">Dashboard — Flujo de Efectivo</h1>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Label className="text-sm whitespace-nowrap">Proyección:</Label>
+            <div className="flex gap-1">
+              {[7, 15, 30, 60, 90].map((d) => (
+                <Button
+                  key={d}
+                  variant={numDias === d ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setNumDias(d)}
+                  className="px-3"
+                >
+                  {d}d
+                </Button>
+              ))}
+            </div>
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              value={numDias}
+              onChange={(e) => {
+                const v = parseInt(e.target.value)
+                if (v > 0 && v <= 365) setNumDias(v)
+              }}
+              className="w-[70px] h-8 text-center"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={exportToExcel}>
+            <Download className="h-4 w-4 mr-2" /> Exportar
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -228,7 +260,7 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Egresos próx. 15 días</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Egresos próx. {numDias} días</CardTitle>
             <TrendingDown className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
@@ -339,7 +371,7 @@ export default function DashboardPage() {
       {/* 15-day flow table - full width */}
       <Card>
         <CardHeader>
-          <CardTitle>Flujo de efectivo — 15 días</CardTitle>
+          <CardTitle>Flujo de efectivo — {numDias} días</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">

@@ -39,7 +39,7 @@ function getRecurrences(
   return dates
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = createServerSupabase()
 
   let empresaId: string
@@ -48,6 +48,10 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: 'No empresa selected' }, { status: 400 })
   }
+
+  // Parse number of days from query param (default 15, max 365)
+  const { searchParams } = new URL(request.url)
+  const numDias = Math.min(Math.max(parseInt(searchParams.get('dias') || '15') || 15, 1), 365)
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -70,7 +74,7 @@ export async function GET() {
       .eq('empresa_id', empresaId)
       .in('estatus', ['pendiente', 'aprobada'])
       .gte('fecha_vencimiento', format(today, 'yyyy-MM-dd'))
-      .lte('fecha_vencimiento', format(addDays(today, 14), 'yyyy-MM-dd')),
+      .lte('fecha_vencimiento', format(addDays(today, numDias - 1), 'yyyy-MM-dd')),
     supabase
       .from('facturas')
       .select('*, proveedores(nombre_empresa)')
@@ -93,7 +97,7 @@ export async function GET() {
       .select('*')
       .eq('empresa_id', empresaId)
       .gte('fecha', format(today, 'yyyy-MM-dd'))
-      .lte('fecha', format(addDays(today, 14), 'yyyy-MM-dd')),
+      .lte('fecha', format(addDays(today, numDias - 1), 'yyyy-MM-dd')),
     supabase
       .from('cuentas_bancarias')
       .select('id')
@@ -104,7 +108,7 @@ export async function GET() {
       .select('*, sucursales(nombre), canales_ingreso(nombre)')
       .eq('empresa_id', empresaId)
       .gte('fecha', format(today, 'yyyy-MM-dd'))
-      .lte('fecha', format(addDays(today, 14), 'yyyy-MM-dd')),
+      .lte('fecha', format(addDays(today, numDias - 1), 'yyyy-MM-dd')),
   ])
 
   // Get opening balance: sum of most recent saldo from each active account
@@ -126,7 +130,7 @@ export async function GET() {
 
   // Filter programmed facturas: use fecha_programada_pago if set, else fecha_vencimiento
   const todayStr = format(today, 'yyyy-MM-dd')
-  const rangeEnd = addDays(today, 14)
+  const rangeEnd = addDays(today, numDias - 1)
   const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd')
   const filteredProgramadas = (facturasProgramadas || []).filter(f => {
     const fechaRelevante = f.fecha_programada_pago || f.fecha_vencimiento
@@ -136,7 +140,7 @@ export async function GET() {
   // Combine pending/approved + programmed facturas
   const facturas = [...(facturasPendientes || []), ...filteredProgramadas]
 
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < numDias; i++) {
     const date = addDays(today, i)
     const dateStr = format(date, 'yyyy-MM-dd')
     const items: FlujoDiarioItem[] = []

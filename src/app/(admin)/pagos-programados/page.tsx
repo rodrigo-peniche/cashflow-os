@@ -23,6 +23,7 @@ import { ExportButton } from '@/components/shared/export-button'
 import { CalendarClock, Plus, Trash2 } from 'lucide-react'
 import type { Proveedor } from '@/lib/types'
 import { useEmpresa } from '@/lib/contexts/empresa-context'
+import { ProveedorCombobox } from '@/components/shared/proveedor-combobox'
 import { useTableSort } from '@/lib/hooks/use-table-sort'
 import { SortableHeader } from '@/components/shared/sortable-header'
 
@@ -199,9 +200,11 @@ export default function PagosProgramadosPage() {
               </div>
 
               <div className="flex items-center gap-3">
-                <Label>Monto fijo</Label>
+                <Label>Tipo de monto</Label>
                 <Switch checked={esFijo} onCheckedChange={setEsFijo} />
-                <span className="text-sm text-muted-foreground">{esFijo ? 'Fijo' : 'Aproximado'}</span>
+                <span className={`text-sm font-medium ${esFijo ? 'text-green-700' : 'text-orange-600'}`}>
+                  {esFijo ? '💰 Monto fijo' : '📊 Variable (ej. CFE, agua, gas)'}
+                </span>
               </div>
 
               {esFijo ? (
@@ -238,13 +241,12 @@ export default function PagosProgramadosPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Proveedor</Label>
-                  <Select value={proveedorId} onValueChange={setProveedorId}>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar proveedor..." /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Sin proveedor</SelectItem>
-                      {proveedores.map((p) => <SelectItem key={p.id} value={p.id}>{p.nombre_empresa}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <ProveedorCombobox
+                    proveedores={proveedores}
+                    value={proveedorId}
+                    onValueChange={setProveedorId}
+                    placeholder="Seleccionar proveedor..."
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Cuenta bancaria</Label>
