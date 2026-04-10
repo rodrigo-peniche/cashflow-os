@@ -19,7 +19,7 @@ import { FileUpload } from '@/components/shared/file-upload'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays } from 'lucide-react'
+import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil } from 'lucide-react'
 import { SortableHeader } from '@/components/shared/sortable-header'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -144,9 +144,23 @@ export default function FacturasPage() {
     const factura = facturas.find(f => f.id === id)
     if (!factura) return
     const supabase = createClient()
-    const montoIva = tipoIva === '16' ? factura.subtotal * 0.16 : 0
-    const total = factura.subtotal + montoIva
-    const { error } = await supabase.from('facturas').update({ tipo_iva: tipoIva, monto_iva: montoIva, total }).eq('id', id)
+    // Use current total as the base: if switching to 16%, reverse-calculate subtotal from total
+    // (total already includes IVA when the factura was loaded)
+    const currentTotal = factura.total
+    let subtotal: number
+    let montoIva: number
+    let total: number
+    if (tipoIva === '16') {
+      subtotal = Math.round((currentTotal / 1.16) * 100) / 100
+      montoIva = Math.round((currentTotal - subtotal) * 100) / 100
+      total = currentTotal
+    } else {
+      // 0% or exento: subtotal = total, no IVA
+      subtotal = currentTotal
+      montoIva = 0
+      total = currentTotal
+    }
+    const { error } = await supabase.from('facturas').update({ tipo_iva: tipoIva, monto_iva: montoIva, subtotal, total }).eq('id', id)
     if (error) { toast.error(error.message); return }
     toast.success('IVA actualizado')
     loadData()
@@ -511,6 +525,7 @@ function FacturaDetailPanel({
       {/* Quick info bar */}
       <div className="flex flex-wrap gap-4 text-sm">
         <div className="flex items-center gap-1">
+          {userRole !== 'viewer' && <Pencil className="h-3 w-3 text-muted-foreground mr-0.5" />}
           <span className="text-muted-foreground"># Factura:</span>
           {userRole !== 'viewer' ? (
             <Input

@@ -76,13 +76,12 @@ export async function GET() {
       .eq('empresa_id', empresaId)
       .in('estatus', ['pendiente', 'aprobada'])
       .lt('fecha_vencimiento', format(today, 'yyyy-MM-dd')),
+    // Programmed facturas: fetch all, filter in code (some may lack fecha_programada_pago)
     supabase
       .from('facturas')
       .select('*, proveedores(nombre_empresa)')
       .eq('empresa_id', empresaId)
-      .eq('estatus', 'programada')
-      .gte('fecha_programada_pago', format(today, 'yyyy-MM-dd'))
-      .lte('fecha_programada_pago', format(addDays(today, 14), 'yyyy-MM-dd')),
+      .eq('estatus', 'programada'),
     supabase
       .from('pagos_programados')
       .select('*')
@@ -118,10 +117,17 @@ export async function GET() {
     openingBalance = balances.reduce((sum, b) => sum + Number(b), 0)
   }
 
-  // Combine pending/approved + programmed facturas
-  const facturas = [...(facturasPendientes || []), ...(facturasProgramadas || [])]
-
+  // Filter programmed facturas: use fecha_programada_pago if set, else fecha_vencimiento
+  const todayStr = format(today, 'yyyy-MM-dd')
   const rangeEnd = addDays(today, 14)
+  const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd')
+  const filteredProgramadas = (facturasProgramadas || []).filter(f => {
+    const fechaRelevante = f.fecha_programada_pago || f.fecha_vencimiento
+    return fechaRelevante && fechaRelevante >= todayStr && fechaRelevante <= rangeEndStr
+  })
+
+  // Combine pending/approved + programmed facturas
+  const facturas = [...(facturasPendientes || []), ...filteredProgramadas]
 
   for (let i = 0; i < 15; i++) {
     const date = addDays(today, i)
