@@ -123,9 +123,26 @@ export default function IngresosPage() {
     if (!nombre) { toast.error('Escribe un nombre de sucursal'); return }
     if (!empresaId) { toast.error('No hay empresa seleccionada'); return }
     const supabase = createClient()
-    const { error } = await supabase.from('sucursales').insert({ empresa_id: empresaId, nombre })
-    if (error) { toast.error('Error al crear sucursal: ' + error.message); return }
-    toast.success(`Sucursal "${nombre}" creada`)
+    // Check if exists (maybe inactive)
+    const { data: existing } = await supabase
+      .from('sucursales')
+      .select('id, activa')
+      .eq('empresa_id', empresaId)
+      .eq('nombre', nombre)
+      .single()
+    if (existing) {
+      if (!existing.activa) {
+        await supabase.from('sucursales').update({ activa: true }).eq('id', existing.id)
+        toast.success(`Sucursal "${nombre}" reactivada`)
+      } else {
+        toast.error(`La sucursal "${nombre}" ya existe`)
+        return
+      }
+    } else {
+      const { error } = await supabase.from('sucursales').insert({ empresa_id: empresaId, nombre })
+      if (error) { toast.error('Error al crear sucursal: ' + error.message); return }
+      toast.success(`Sucursal "${nombre}" creada`)
+    }
     setNewSucursal('')
     loadData()
   }
@@ -143,15 +160,34 @@ export default function IngresosPage() {
     if (!nombre) { toast.error('Selecciona o escribe un nombre de canal'); return }
     if (!empresaId) { toast.error('No hay empresa seleccionada'); return }
     const supabase = createClient()
-    const { error } = await supabase.from('canales_ingreso').insert({
-      empresa_id: empresaId,
-      nombre,
-      frecuencia: newCanalFrecuencia,
-      dia_deposito: newCanalFrecuencia !== 'diario' ? (newCanalDia || null) : null,
-      monto_aproximado: newCanalMonto ? Number(newCanalMonto) : null,
-    })
-    if (error) { toast.error('Error al crear canal: ' + error.message); return }
-    toast.success(`Canal "${nombre}" creado`)
+    // Check if exists (maybe inactive)
+    const { data: existing } = await supabase
+      .from('canales_ingreso')
+      .select('id, activo')
+      .eq('empresa_id', empresaId)
+      .eq('nombre', nombre)
+      .single()
+    if (existing) {
+      // Update existing canal (reactivate + update fields)
+      const { error } = await supabase.from('canales_ingreso').update({
+        activo: true,
+        frecuencia: newCanalFrecuencia,
+        dia_deposito: newCanalFrecuencia !== 'diario' ? (newCanalDia || null) : null,
+        monto_aproximado: newCanalMonto ? Number(newCanalMonto) : null,
+      }).eq('id', existing.id)
+      if (error) { toast.error('Error: ' + error.message); return }
+      toast.success(existing.activo ? `Canal "${nombre}" actualizado` : `Canal "${nombre}" reactivado`)
+    } else {
+      const { error } = await supabase.from('canales_ingreso').insert({
+        empresa_id: empresaId,
+        nombre,
+        frecuencia: newCanalFrecuencia,
+        dia_deposito: newCanalFrecuencia !== 'diario' ? (newCanalDia || null) : null,
+        monto_aproximado: newCanalMonto ? Number(newCanalMonto) : null,
+      })
+      if (error) { toast.error('Error al crear canal: ' + error.message); return }
+      toast.success(`Canal "${nombre}" creado`)
+    }
     setNewCanal('')
     setNewCanalCustom('')
     setNewCanalFrecuencia('diario')

@@ -62,6 +62,8 @@ export async function GET() {
     { data: pagos },
     { data: flujos },
     { data: cuentas },
+    { data: canalesIngreso },
+    { data: ingresosReales },
   ] = await Promise.all([
     supabase
       .from('facturas')
@@ -98,6 +100,17 @@ export async function GET() {
       .select('id')
       .eq('empresa_id', empresaId)
       .eq('activa', true),
+    supabase
+      .from('canales_ingreso')
+      .select('*')
+      .eq('empresa_id', empresaId)
+      .eq('activo', true),
+    supabase
+      .from('ingresos_diarios')
+      .select('*, sucursales(nombre), canales_ingreso(nombre)')
+      .eq('empresa_id', empresaId)
+      .gte('fecha', format(today, 'yyyy-MM-dd'))
+      .lte('fecha', format(addDays(today, 14), 'yyyy-MM-dd')),
   ])
 
   // Get opening balance: sum of most recent saldo from each active account
@@ -193,6 +206,42 @@ export async function GET() {
         }
       })
     })
+
+    // --- REAL INCOME (ingresos_diarios) ---
+    ingresosReales?.forEach((ing) => {
+      if (ing.fecha !== dateStr) return
+      const monto = Number(ing.monto)
+      if (monto <= 0) return
+      const canalNombre = (ing as unknown as Record<string, Record<string, string>>).canales_ingreso?.nombre || 'Ingreso'
+      const sucNombre = (ing as unknown as Record<string, Record<string, string>>).sucursales?.nombre || ''
+      ingreso_real += monto
+      items.push({
+        tipo: 'ingreso_real',
+        descripcion: sucNombre ? `${canalNombre} (${sucNombre})` : canalNombre,
+        monto,
+        origen: 'ingreso_diario',
+      })
+    })
+
+    // --- ESTIMATED INCOME (canales with monto_aproximado, only for days without real income) ---
+    const hasRealIncome = ingresosReales?.some(ing => ing.fecha === dateStr && Number(ing.monto) > 0)
+    if (!hasRealIncome) {
+      canalesIngreso?.forEach((canal) => {
+        if (!canal.monto_aproximado || canal.monto_aproximado <= 0) return
+        // Check frequency
+        const freq = canal.frecuencia || 'diario'
+        if (freq === 'diario') {
+          ingreso_estimado += Number(canal.monto_aproximado)
+          items.push({
+            tipo: 'ingreso_estimado',
+            descripcion: `${canal.nombre} (est.)`,
+            monto: Number(canal.monto_aproximado),
+            origen: 'canal_ingreso',
+          })
+        }
+        // Weekly/biweekly/monthly would need day matching - skip for simplicity
+      })
+    }
 
     // --- TENTATIVE FLOWS ---
     flujos?.forEach((f) => {
