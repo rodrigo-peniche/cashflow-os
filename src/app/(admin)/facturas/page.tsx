@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -19,8 +19,88 @@ import { FileUpload } from '@/components/shared/file-upload'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil } from 'lucide-react'
+import { MoneyInput } from '@/components/shared/money-input'
+import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil, Plus, FileUp } from 'lucide-react'
 import { SortableHeader } from '@/components/shared/sortable-header'
+
+// ─── CFDI XML Parser ───────────────────────────────────────────────
+interface CfdiData {
+  rfcEmisor: string
+  nombreEmisor: string
+  rfcReceptor: string
+  folio: string
+  serie: string
+  fecha: string
+  subtotal: number
+  total: number
+  montoIva: number
+  tipoIva: '16' | '0' | 'exento'
+  uuid: string
+}
+
+function parseCfdiXml(xmlText: string): CfdiData | null {
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(xmlText, 'text/xml')
+
+    // Handle namespace - try both cfdi: and without namespace
+    const comprobante = doc.querySelector('Comprobante') || doc.getElementsByTagName('cfdi:Comprobante')[0]
+    if (!comprobante) return null
+
+    const emisor = doc.querySelector('Emisor') || doc.getElementsByTagName('cfdi:Emisor')[0]
+    const receptor = doc.querySelector('Receptor') || doc.getElementsByTagName('cfdi:Receptor')[0]
+
+    // Get UUID from TimbreFiscalDigital
+    let uuid = ''
+    const timbre = doc.querySelector('TimbreFiscalDigital') || doc.getElementsByTagName('tfd:TimbreFiscalDigital')[0]
+    if (timbre) uuid = timbre.getAttribute('UUID') || ''
+
+    const subtotal = parseFloat(comprobante.getAttribute('SubTotal') || '0')
+    const total = parseFloat(comprobante.getAttribute('Total') || '0')
+
+    // Calculate IVA
+    let montoIva = 0
+    const impuestos = doc.querySelector('Impuestos') || doc.getElementsByTagName('cfdi:Impuestos')[0]
+    if (impuestos) {
+      montoIva = parseFloat(impuestos.getAttribute('TotalImpuestosTrasladados') || '0')
+    }
+
+    // Determine IVA type
+    let tipoIva: '16' | '0' | 'exento' = 'exento'
+    const traslados = doc.querySelectorAll('Traslado')
+    const trasladosNs = doc.getElementsByTagName('cfdi:Traslado')
+    const allTraslados = traslados.length > 0 ? traslados : trasladosNs
+    for (let i = 0; i < allTraslados.length; i++) {
+      const t = allTraslados[i]
+      const tasa = t.getAttribute('TasaOCuota') || ''
+      if (tasa.includes('0.16') || tasa === '0.160000') {
+        tipoIva = '16'
+        break
+      } else if (tasa === '0.000000' || tasa === '0') {
+        tipoIva = '0'
+      }
+    }
+
+    const fechaStr = comprobante.getAttribute('Fecha') || ''
+    const fecha = fechaStr ? fechaStr.substring(0, 10) : ''
+
+    return {
+      rfcEmisor: emisor?.getAttribute('Rfc') || '',
+      nombreEmisor: emisor?.getAttribute('Nombre') || '',
+      rfcReceptor: receptor?.getAttribute('Rfc') || '',
+      folio: comprobante.getAttribute('Folio') || '',
+      serie: comprobante.getAttribute('Serie') || '',
+      fecha,
+      subtotal,
+      total,
+      montoIva,
+      tipoIva,
+      uuid,
+    }
+  } catch {
+    return null
+  }
+}
 
 const STATUS_COLORS: Record<string, string> = {
   pendiente: 'bg-yellow-100 text-yellow-800',
@@ -73,6 +153,20 @@ export default function FacturasPage() {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const { empresaId, userRole } = useEmpresa()
+  const [showForm, setShowForm] = useState(false)
+
+  // New factura form state
+  const [formNumero, setFormNumero] = useState('')
+  const [formProveedorId, setFormProveedorId] = useState('')
+  const [formFecha, setFormFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [formDiasCredito, setFormDiasCredito] = useState(0)
+  const [formTotal, setFormTotal] = useState(0)
+  const [formTipoIva, setFormTipoIva] = useState<'16' | '0' | 'exento'>('16')
+  const [formNotas, setFormNotas] = useState('')
+  const [formPdfUrl, setFormPdfUrl] = useState('')
+  const [formXmlUrl, setFormXmlUrl] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [importMode, setImportMode] = useState<'manual' | 'xml' | null>(null)
 
   const loadData = useCallback(async () => {
     if (!empresaId) return
@@ -95,6 +189,101 @@ export default function FacturasPage() {
     } else {
       setSortKey(key)
       setSortDir('asc')
+    }
+  }
+
+  function resetForm() {
+    setFormNumero(''); setFormProveedorId(''); setFormFecha(format(new Date(), 'yyyy-MM-dd'))
+    setFormDiasCredito(0); setFormTotal(0); setFormTipoIva('16'); setFormNotas('')
+    setFormPdfUrl(''); setFormXmlUrl(''); setImportMode(null)
+  }
+
+  async function handleNewFactura(e: React.FormEvent) {
+    e.preventDefault()
+    if (!formNumero.trim()) { toast.error('El número de factura es requerido'); return }
+    if (!formProveedorId) { toast.error('Selecciona un proveedor'); return }
+    if (formTotal <= 0) { toast.error('El monto debe ser mayor a 0'); return }
+
+    setSubmitting(true)
+    const supabase = createClient()
+
+    let subtotal: number, montoIva: number
+    if (formTipoIva === '16') {
+      subtotal = Math.round((formTotal / 1.16) * 100) / 100
+      montoIva = Math.round((formTotal - subtotal) * 100) / 100
+    } else {
+      subtotal = formTotal
+      montoIva = 0
+    }
+
+    const fechaVenc = formDiasCredito > 0
+      ? format(addDays(new Date(formFecha + 'T12:00:00'), formDiasCredito), 'yyyy-MM-dd')
+      : formFecha
+
+    const { error } = await supabase.from('facturas').insert({
+      empresa_id: empresaId,
+      proveedor_id: formProveedorId,
+      numero_factura: formNumero.trim(),
+      fecha_factura: formFecha,
+      dias_credito: formDiasCredito,
+      fecha_vencimiento: fechaVenc,
+      subtotal,
+      tipo_iva: formTipoIva,
+      monto_iva: montoIva,
+      total: formTotal,
+      estatus: 'pendiente',
+      pdf_url: formPdfUrl || null,
+      xml_url: formXmlUrl || null,
+      notas: formNotas || null,
+    })
+
+    setSubmitting(false)
+    if (error) { toast.error(error.message); return }
+    toast.success('Factura creada exitosamente')
+    resetForm()
+    setShowForm(false)
+    loadData()
+  }
+
+  async function handleXmlImport(file: File) {
+    const text = await file.text()
+    const cfdi = parseCfdiXml(text)
+    if (!cfdi) {
+      toast.error('No se pudo leer el XML. Verifica que sea un CFDI válido.')
+      return
+    }
+
+    // Try to match proveedor by RFC
+    const matchedProv = proveedores.find(p => p.rfc.toUpperCase() === cfdi.rfcEmisor.toUpperCase())
+
+    // Auto-fill form
+    const folio = cfdi.serie ? `${cfdi.serie}-${cfdi.folio}` : cfdi.folio
+    setFormNumero(folio || cfdi.uuid.substring(0, 8).toUpperCase())
+    setFormFecha(cfdi.fecha || format(new Date(), 'yyyy-MM-dd'))
+    setFormTotal(cfdi.total)
+    setFormTipoIva(cfdi.tipoIva)
+    if (matchedProv) {
+      setFormProveedorId(matchedProv.id)
+    } else {
+      setFormNotas(`Emisor XML: ${cfdi.nombreEmisor} (RFC: ${cfdi.rfcEmisor})`)
+    }
+
+    // Upload XML file to storage
+    const supabase = createClient()
+    const path = `xml/${empresaId}/${Date.now()}-${file.name}`
+    const { error } = await supabase.storage.from('facturas').upload(path, file)
+    if (!error) {
+      const { data: urlData } = supabase.storage.from('facturas').getPublicUrl(path)
+      setFormXmlUrl(urlData.publicUrl)
+    }
+
+    setImportMode('xml')
+    setShowForm(true)
+
+    if (matchedProv) {
+      toast.success(`XML procesado: ${cfdi.nombreEmisor} - ${formatMXN(cfdi.total)}`)
+    } else {
+      toast.info(`XML procesado. Emisor "${cfdi.nombreEmisor}" (${cfdi.rfcEmisor}) no encontrado en proveedores. Selecciona uno manualmente.`)
     }
   }
 
@@ -268,6 +457,31 @@ export default function FacturasPage() {
         <div className="flex gap-2">
           <ExportButton data={exportData} filename="facturas" sheetName="Facturas" />
           {userRole !== 'viewer' && (
+            <>
+              {/* XML/PDF Import zone */}
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".xml"
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      handleXmlImport(file)
+                      e.target.value = ''
+                    }
+                  }}
+                />
+                <Button variant="outline">
+                  <FileUp className="h-4 w-4 mr-2" /> Importar XML
+                </Button>
+              </div>
+              <Button onClick={() => { resetForm(); setShowForm(!showForm) }}>
+                <Plus className="h-4 w-4 mr-2" /> Nueva factura
+              </Button>
+            </>
+          )}
+          {userRole !== 'viewer' && (
           <ExcelImport
             templateKey="facturas"
             empresaId={empresaId}
@@ -361,6 +575,135 @@ export default function FacturasPage() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* ─── New Factura Form ──────────────────────────────── */}
+      {showForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {importMode === 'xml' ? <FileUp className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+              {importMode === 'xml' ? 'Factura desde XML' : 'Nueva factura manual'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleNewFactura} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label># Factura *</Label>
+                  <Input value={formNumero} onChange={(e) => setFormNumero(e.target.value)} placeholder="Ej: A-001" required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Proveedor *</Label>
+                  <Select value={formProveedorId} onValueChange={setFormProveedorId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar proveedor..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {proveedores.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.nombre_empresa} ({p.rfc})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Fecha factura *</Label>
+                  <Input type="date" value={formFecha} onChange={(e) => setFormFecha(e.target.value)} required />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>Total (con IVA) *</Label>
+                  <MoneyInput value={formTotal} onChange={setFormTotal} />
+                </div>
+                <div className="space-y-2">
+                  <Label>IVA</Label>
+                  <Select value={formTipoIva} onValueChange={(v) => setFormTipoIva(v as '16' | '0' | 'exento')}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="16">16%</SelectItem>
+                      <SelectItem value="0">0%</SelectItem>
+                      <SelectItem value="exento">Exento</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Días crédito</Label>
+                  <Input type="number" min={0} value={formDiasCredito} onChange={(e) => setFormDiasCredito(parseInt(e.target.value) || 0)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Vencimiento</Label>
+                  <Input
+                    type="date"
+                    value={formDiasCredito > 0 ? format(addDays(new Date(formFecha + 'T12:00:00'), formDiasCredito), 'yyyy-MM-dd') : formFecha}
+                    disabled
+                    className="bg-muted"
+                  />
+                </div>
+              </div>
+
+              {/* Desglose IVA automático */}
+              {formTotal > 0 && (
+                <div className="text-sm text-muted-foreground bg-muted/50 p-2 rounded">
+                  {formTipoIva === '16' ? (
+                    <>Subtotal: {formatMXN(Math.round((formTotal / 1.16) * 100) / 100)} | IVA 16%: {formatMXN(Math.round((formTotal - formTotal / 1.16) * 100) / 100)} | Total: {formatMXN(formTotal)}</>
+                  ) : (
+                    <>Subtotal: {formatMXN(formTotal)} | IVA: $0.00 | Total: {formatMXN(formTotal)}</>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>PDF de factura</Label>
+                  <FileUpload
+                    bucket="facturas"
+                    folder={`pdf/${empresaId}`}
+                    accept=".pdf"
+                    label="Subir PDF de factura"
+                    value={formPdfUrl || undefined}
+                    onUpload={(url) => setFormPdfUrl(url)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>XML de factura</Label>
+                  {formXmlUrl ? (
+                    <div className="flex items-center gap-2 rounded-md border p-2 bg-muted/50">
+                      <FileUp className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm truncate flex-1">XML cargado</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setFormXmlUrl('')}>
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <FileUpload
+                      bucket="facturas"
+                      folder={`xml/${empresaId}`}
+                      accept=".xml"
+                      label="Subir XML de factura"
+                      onUpload={(url) => setFormXmlUrl(url)}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Notas</Label>
+                <Textarea value={formNotas} onChange={(e) => setFormNotas(e.target.value)} placeholder="Notas o comentarios..." rows={2} />
+              </div>
+
+              <div className="flex gap-2">
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? 'Guardando...' : 'Guardar factura'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => { resetForm(); setShowForm(false) }}>
+                  Cancelar
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="pt-6">
