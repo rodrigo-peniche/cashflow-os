@@ -113,7 +113,8 @@ export default function FacturasPage() {
 
   async function setPaymentDate(id: string, fecha: string) {
     const supabase = createClient()
-    await supabase.from('facturas').update({ fecha_programada_pago: fecha }).eq('id', id)
+    // Auto-change status to 'programada' when scheduling a payment date
+    await supabase.from('facturas').update({ fecha_programada_pago: fecha, estatus: 'programada' }).eq('id', id)
     loadData()
   }
 

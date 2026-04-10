@@ -56,8 +56,9 @@ export async function GET() {
 
   // Fetch all required data in parallel
   const [
-    { data: facturas },
+    { data: facturasPendientes },
     { data: facturasVencidas },
+    { data: facturasProgramadas },
     { data: pagos },
     { data: flujos },
     { data: cuentas },
@@ -66,15 +67,22 @@ export async function GET() {
       .from('facturas')
       .select('*, proveedores(nombre_empresa)')
       .eq('empresa_id', empresaId)
-      .in('estatus', ['pendiente', 'aprobada', 'programada'])
+      .in('estatus', ['pendiente', 'aprobada'])
       .gte('fecha_vencimiento', format(today, 'yyyy-MM-dd'))
       .lte('fecha_vencimiento', format(addDays(today, 14), 'yyyy-MM-dd')),
     supabase
       .from('facturas')
       .select('*, proveedores(nombre_empresa)')
       .eq('empresa_id', empresaId)
-      .in('estatus', ['pendiente', 'aprobada', 'programada'])
+      .in('estatus', ['pendiente', 'aprobada'])
       .lt('fecha_vencimiento', format(today, 'yyyy-MM-dd')),
+    supabase
+      .from('facturas')
+      .select('*, proveedores(nombre_empresa)')
+      .eq('empresa_id', empresaId)
+      .eq('estatus', 'programada')
+      .gte('fecha_programada_pago', format(today, 'yyyy-MM-dd'))
+      .lte('fecha_programada_pago', format(addDays(today, 14), 'yyyy-MM-dd')),
     supabase
       .from('pagos_programados')
       .select('*')
@@ -110,6 +118,9 @@ export async function GET() {
     openingBalance = balances.reduce((sum, b) => sum + Number(b), 0)
   }
 
+  // Combine pending/approved + programmed facturas
+  const facturas = [...(facturasPendientes || []), ...(facturasProgramadas || [])]
+
   const rangeEnd = addDays(today, 14)
 
   for (let i = 0; i < 15; i++) {
@@ -123,8 +134,12 @@ export async function GET() {
     let egreso_estimado = 0
 
     // --- INVOICES ---
-    facturas?.forEach((f) => {
-      if (f.fecha_vencimiento !== dateStr) return
+    facturas.forEach((f) => {
+      // Programadas use fecha_programada_pago, others use fecha_vencimiento
+      const fechaRelevante = f.estatus === 'programada' && f.fecha_programada_pago
+        ? f.fecha_programada_pago
+        : f.fecha_vencimiento
+      if (fechaRelevante !== dateStr) return
       const provNombre = (f as unknown as Record<string, Record<string, string>>).proveedores?.nombre_empresa || f.numero_factura
 
       if (f.estatus === 'aprobada' || f.estatus === 'programada') {
