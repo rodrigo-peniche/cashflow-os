@@ -140,6 +140,25 @@ export default function FacturasPage() {
     loadData()
   }
 
+  async function updateTotal(id: string, newTotal: number) {
+    if (newTotal <= 0) { toast.error('El monto debe ser mayor a 0'); return }
+    const factura = facturas.find(f => f.id === id)
+    if (!factura) return
+    const supabase = createClient()
+    let subtotal: number, montoIva: number
+    if (factura.tipo_iva === '16') {
+      subtotal = Math.round((newTotal / 1.16) * 100) / 100
+      montoIva = Math.round((newTotal - subtotal) * 100) / 100
+    } else {
+      subtotal = newTotal
+      montoIva = 0
+    }
+    const { error } = await supabase.from('facturas').update({ total: newTotal, subtotal, monto_iva: montoIva }).eq('id', id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Monto actualizado')
+    loadData()
+  }
+
   async function updateIva(id: string, tipoIva: '16' | '0' | 'exento') {
     const factura = facturas.find(f => f.id === id)
     if (!factura) return
@@ -420,6 +439,7 @@ export default function FacturasPage() {
                               onUpdateDiasCredito={updateDiasCredito}
                               onUpdateNumeroFactura={updateNumeroFactura}
                               onUpdateFechaFactura={updateFechaFactura}
+                              onUpdateTotal={updateTotal}
                               onReload={loadData}
                             />
                           </TableCell>
@@ -453,6 +473,7 @@ function FacturaDetailPanel({
   onUpdateDiasCredito,
   onUpdateNumeroFactura,
   onUpdateFechaFactura,
+  onUpdateTotal,
   onReload,
 }: {
   factura: FacturaExtended
@@ -467,6 +488,7 @@ function FacturaDetailPanel({
   onUpdateDiasCredito: (id: string, dias: number) => void
   onUpdateNumeroFactura: (id: string, numero: string) => void
   onUpdateFechaFactura: (id: string, fecha: string) => void
+  onUpdateTotal: (id: string, total: number) => void
   onReload: () => void
 }) {
   const { empresaId } = useEmpresa()
@@ -580,12 +602,34 @@ function FacturaDetailPanel({
             <Badge variant="outline">{factura.tipo_iva === '16' ? '16%' : factura.tipo_iva === '0' ? '0%' : 'Exento'}</Badge>
           )}
         </div>
-        <div>
-          <span className="text-muted-foreground">Subtotal:</span> {formatMXN(factura.subtotal)}
+        <div className="flex items-center gap-1">
+          <span className="text-muted-foreground">Total:</span>
+          {userRole !== 'viewer' ? (
+            <Input
+              type="number"
+              className="h-7 w-[130px] text-xs"
+              defaultValue={factura.total}
+              step="0.01"
+              min="0"
+              onBlur={(e) => {
+                const val = Number(e.target.value)
+                if (val > 0 && val !== factura.total) onUpdateTotal(factura.id, val)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = Number((e.target as HTMLInputElement).value)
+                  if (val > 0 && val !== factura.total) onUpdateTotal(factura.id, val)
+                }
+              }}
+            />
+          ) : (
+            <span className="font-medium">{formatMXN(factura.total)}</span>
+          )}
         </div>
-        {factura.monto_iva > 0 && (
-          <div><span className="text-muted-foreground">IVA:</span> {formatMXN(factura.monto_iva)}</div>
-        )}
+        <div className="text-xs text-muted-foreground">
+          Subtotal: {formatMXN(factura.subtotal)}
+          {factura.monto_iva > 0 && <> | IVA: {formatMXN(factura.monto_iva)}</>}
+        </div>
         <div className="flex items-center gap-1">
           <span className="text-muted-foreground">Crédito:</span>
           {userRole !== 'viewer' ? (

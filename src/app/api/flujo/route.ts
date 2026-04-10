@@ -62,7 +62,6 @@ export async function GET() {
     { data: pagos },
     { data: flujos },
     { data: cuentas },
-    { data: canalesIngreso },
     { data: ingresosReales },
   ] = await Promise.all([
     supabase
@@ -100,11 +99,6 @@ export async function GET() {
       .select('id')
       .eq('empresa_id', empresaId)
       .eq('activa', true),
-    supabase
-      .from('canales_ingreso')
-      .select('*')
-      .eq('empresa_id', empresaId)
-      .eq('activo', true),
     supabase
       .from('ingresos_diarios')
       .select('*, sucursales(nombre), canales_ingreso(nombre)')
@@ -222,26 +216,6 @@ export async function GET() {
         origen: 'ingreso_diario',
       })
     })
-
-    // --- ESTIMATED INCOME (canales with monto_aproximado, only for days without real income) ---
-    const hasRealIncome = ingresosReales?.some(ing => ing.fecha === dateStr && Number(ing.monto) > 0)
-    if (!hasRealIncome) {
-      canalesIngreso?.forEach((canal) => {
-        if (!canal.monto_aproximado || canal.monto_aproximado <= 0) return
-        // Check frequency
-        const freq = canal.frecuencia || 'diario'
-        if (freq === 'diario') {
-          ingreso_estimado += Number(canal.monto_aproximado)
-          items.push({
-            tipo: 'ingreso_estimado',
-            descripcion: `${canal.nombre} (est.)`,
-            monto: Number(canal.monto_aproximado),
-            origen: 'canal_ingreso',
-          })
-        }
-        // Weekly/biweekly/monthly would need day matching - skip for simplicity
-      })
-    }
 
     // --- TENTATIVE FLOWS ---
     flujos?.forEach((f) => {

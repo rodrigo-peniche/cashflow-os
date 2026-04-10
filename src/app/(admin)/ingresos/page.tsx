@@ -83,6 +83,16 @@ export default function IngresosPage() {
       map[`${ing.sucursal_id}_${ing.canal_id}_${ing.fecha}`] = { id: ing.id, monto: Number(ing.monto) }
     })
     setIngresos(map)
+
+    // Cleanup: delete orphaned ingresos without valid sucursal
+    const sucIds = new Set((sucRes.data || []).map(s => s.id))
+    const orphans = (ingData || []).filter(ing => !sucIds.has(ing.sucursal_id))
+    if (orphans.length > 0) {
+      for (const o of orphans) {
+        await supabase.from('ingresos_diarios').delete().eq('id', o.id)
+      }
+    }
+
     setLoading(false)
   }, [empresaId, startDate, numDays])
 
@@ -92,17 +102,28 @@ export default function IngresosPage() {
     return `${sucId}_${canalId}_${fecha}`
   }
 
-  async function handleCellChange(sucId: string, canalId: string, fecha: string, value: string) {
+  async function handleCellSave(sucId: string, canalId: string, fecha: string, value: string) {
     const monto = Number(value) || 0
     const key = getCellKey(sucId, canalId, fecha)
     const existing = ingresos[key]
 
-    // Optimistic update
-    setIngresos(prev => ({ ...prev, [key]: { ...existing, monto } }))
+    // Skip if no change
+    if (existing && existing.monto === monto) return
 
     const supabase = createClient()
     if (existing?.id) {
-      await supabase.from('ingresos_diarios').update({ monto }).eq('id', existing.id)
+      if (monto === 0) {
+        // Delete the record if set to 0
+        await supabase.from('ingresos_diarios').delete().eq('id', existing.id)
+        setIngresos(prev => {
+          const copy = { ...prev }
+          delete copy[key]
+          return copy
+        })
+      } else {
+        await supabase.from('ingresos_diarios').update({ monto }).eq('id', existing.id)
+        setIngresos(prev => ({ ...prev, [key]: { ...existing, monto } }))
+      }
     } else if (monto > 0) {
       const { data } = await supabase.from('ingresos_diarios').insert({
         empresa_id: empresaId,
@@ -115,6 +136,7 @@ export default function IngresosPage() {
         setIngresos(prev => ({ ...prev, [key]: { id: data.id, monto } }))
       }
     }
+    toast.success('Guardado')
   }
 
   async function addSucursal(e?: React.FormEvent) {
@@ -123,13 +145,13 @@ export default function IngresosPage() {
     if (!nombre) { toast.error('Escribe un nombre de sucursal'); return }
     if (!empresaId) { toast.error('No hay empresa seleccionada'); return }
     const supabase = createClient()
-    // Check if exists (maybe inactive)
+    // Check if exists (maybe inactive) - use maybeSingle to avoid error when no match
     const { data: existing } = await supabase
       .from('sucursales')
       .select('id, activa')
       .eq('empresa_id', empresaId)
       .eq('nombre', nombre)
-      .single()
+      .maybeSingle()
     if (existing) {
       if (!existing.activa) {
         await supabase.from('sucursales').update({ activa: true }).eq('id', existing.id)
@@ -166,7 +188,7 @@ export default function IngresosPage() {
       .select('id, activo')
       .eq('empresa_id', empresaId)
       .eq('nombre', nombre)
-      .single()
+      .maybeSingle()
     if (existing) {
       // Update existing canal (reactivate + update fields)
       const { error } = await supabase.from('canales_ingreso').update({
@@ -479,8 +501,14 @@ export default function IngresosPage() {
                               <Input
                                 type="number"
                                 className="h-8 text-center text-sm w-full min-w-[70px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                value={val || ''}
-                                onChange={(e) => handleCellChange(suc.id, canal.id, d, e.target.value)}
+                                defaultValue={val || ''}
+                                onBlur={(e) => handleCellSave(suc.id, canal.id, d, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleCellSave(suc.id, canal.id, d, (e.target as HTMLInputElement).value)
+                                    ;(e.target as HTMLInputElement).blur()
+                                  }
+                                }}
                                 placeholder="0"
                                 disabled={userRole === 'viewer'}
                               />
