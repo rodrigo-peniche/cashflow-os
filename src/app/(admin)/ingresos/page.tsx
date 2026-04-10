@@ -104,14 +104,49 @@ export default function IngresosPage() {
     return `${sucId}_${canalId}_${fecha}`
   }
 
+  function shouldPrefill(canal: CanalIngreso, fecha: string): boolean {
+    if (!canal.monto_aproximado) return false
+    const date = new Date(fecha + 'T12:00:00')
+    const dayOfWeek = date.getDay() // 0=Sun, 1=Mon, ..., 6=Sat
+
+    const diaMap: Record<string, number> = {
+      domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6,
+    }
+
+    switch (canal.frecuencia) {
+      case 'diario':
+        return true
+      case 'semanal':
+        if (!canal.dia_deposito) return false
+        return dayOfWeek === diaMap[canal.dia_deposito]
+      case 'quincenal':
+        if (!canal.dia_deposito) return false
+        if (dayOfWeek !== diaMap[canal.dia_deposito]) return false
+        // Only 1st and 3rd occurrence of that weekday in the month
+        const dayOfMonth = date.getDate()
+        return dayOfMonth <= 7 || (dayOfMonth >= 15 && dayOfMonth <= 21)
+      case 'mensual':
+        // Default: day 1 of each month, or use dia_deposito as day number
+        if (canal.dia_deposito) {
+          const targetDay = parseInt(canal.dia_deposito)
+          if (!isNaN(targetDay)) return date.getDate() === targetDay
+          return dayOfWeek === diaMap[canal.dia_deposito] && date.getDate() <= 7
+        }
+        return date.getDate() === 1
+      default:
+        return true
+    }
+  }
+
   function getCellValue(sucId: string, canalId: string, fecha: string): number {
     const key = getCellKey(sucId, canalId, fecha)
-    // Priority: local edit > saved value > monto_aproximado from canal
+    // Priority: local edit > saved value > monto_aproximado from canal (respecting frequency)
     if (localEdits[key] !== undefined) return localEdits[key]
     if (ingresos[key]) return ingresos[key].monto
-    // Default: use monto_aproximado from canal config
+    // Default: use monto_aproximado from canal config, but only on matching days
     const canal = canales.find(c => c.id === canalId)
-    return canal?.monto_aproximado || 0
+    if (canal && shouldPrefill(canal, fecha)) return canal.monto_aproximado || 0
+    return 0
   }
 
   function handleCellEdit(sucId: string, canalId: string, fecha: string, value: string) {
@@ -364,123 +399,108 @@ export default function IngresosPage() {
         </div>
       </div>
 
-      {/* Config panel */}
-      {showConfig && (
+      {/* Canales config - always visible, editable inline */}
+      {canales.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Configurar sucursales y canales</CardTitle></CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Sucursales */}
-              <div className="space-y-3">
-                <Label className="font-semibold text-base">Sucursales</Label>
-                {sucursales.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {sucursales.map(s => (
-                      <Badge key={s.id} variant="outline" className="py-1 pr-1 flex items-center gap-1">
-                        {s.nombre}
-                        <button
-                          onClick={() => deleteSucursal(s.id)}
-                          className="ml-1 rounded-full hover:bg-red-100 p-0.5"
-                          title="Eliminar sucursal"
-                        >
-                          <X className="h-3 w-3 text-red-500" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                <form onSubmit={addSucursal} className="flex gap-2">
-                  <Input
-                    placeholder="Nombre de la sucursal..."
-                    value={newSucursal}
-                    onChange={(e) => setNewSucursal(e.target.value)}
-                  />
-                  <Button type="submit" size="sm"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
-                </form>
-              </div>
-
-              {/* Canales */}
-              <div className="space-y-3">
-                <Label className="font-semibold text-base">Canales de ingreso</Label>
-                {canales.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {canales.map(c => (
-                      <Badge key={c.id} variant="outline" className="py-1 pr-1 flex items-center gap-1">
-                        {c.nombre}
-                        <span className="text-xs opacity-60">
-                          ({FRECUENCIAS_INGRESO.find(f => f.value === c.frecuencia)?.label || 'Diario'})
-                        </span>
-                        {c.dia_deposito && <span className="text-xs opacity-60">dep: {c.dia_deposito}</span>}
-                        {c.monto_aproximado != null && c.monto_aproximado > 0 && (
-                          <span className="text-xs opacity-60">~{formatMXN(c.monto_aproximado)}</span>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Canales de ingreso configurados</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 pr-2 font-medium text-muted-foreground">Canal</th>
+                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Frecuencia</th>
+                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Día depósito</th>
+                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Monto aprox.</th>
+                    <th className="text-center py-2 px-2 font-medium text-muted-foreground w-[80px]"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {canales.map(c => (
+                    <tr key={c.id} className="border-b border-dashed">
+                      <td className="py-1.5 pr-2 font-medium">{c.nombre}</td>
+                      <td className="py-1.5 px-2">
+                        {userRole !== 'viewer' ? (
+                          <Select
+                            value={c.frecuencia}
+                            onValueChange={async (v) => {
+                              const supabase = createClient()
+                              await supabase.from('canales_ingreso').update({ frecuencia: v }).eq('id', c.id)
+                              loadData()
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-[120px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {FRECUENCIAS_INGRESO.map(f => (
+                                <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span>{FRECUENCIAS_INGRESO.find(f => f.value === c.frecuencia)?.label}</span>
                         )}
-                        <button
-                          onClick={() => deleteCanal(c.id)}
-                          className="ml-1 rounded-full hover:bg-red-100 p-0.5"
-                          title="Eliminar canal"
-                        >
-                          <X className="h-3 w-3 text-red-500" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {canales.length === 0 && (
-                  <Button variant="outline" size="sm" onClick={initDefaults}>
-                    Crear canales predeterminados (Efectivo, Tarjeta, Clip, TPV, Uber, Rappi)
-                  </Button>
-                )}
-                <form onSubmit={addCanal} className="space-y-2 border rounded-md p-3 bg-muted/30">
-                  <Label className="text-sm text-muted-foreground">Agregar canal</Label>
-                  <div className="flex gap-2">
-                    <Select value={newCanal} onValueChange={setNewCanal}>
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Seleccionar canal..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CANALES_PREDEFINIDOS.map(c => (
-                          <SelectItem key={c} value={c}>{c}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={newCanalFrecuencia} onValueChange={setNewCanalFrecuencia}>
-                      <SelectTrigger className="w-[140px]">
-                        <SelectValue placeholder="Frecuencia" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {FRECUENCIAS_INGRESO.map(f => (
-                          <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {newCanal === 'Otro' && (
-                    <Input
-                      placeholder="Escribe el nombre del canal..."
-                      value={newCanalCustom}
-                      onChange={(e) => setNewCanalCustom(e.target.value)}
-                    />
-                  )}
-                  {newCanalFrecuencia !== 'diario' && (
-                    <div className="flex gap-2">
-                      <Select value={newCanalDia} onValueChange={setNewCanalDia}>
-                        <SelectTrigger className="flex-1">
-                          <SelectValue placeholder="Día de depósito..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DIAS_SEMANA.map(d => (
-                            <SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    <Input placeholder="Monto aprox. (opcional)" value={newCanalMonto} onChange={(e) => setNewCanalMonto(e.target.value)} className="flex-1" type="number" />
-                    <Button type="submit" size="sm"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
-                  </div>
-                </form>
-              </div>
+                      </td>
+                      <td className="py-1.5 px-2">
+                        {userRole !== 'viewer' && c.frecuencia !== 'diario' ? (
+                          <Select
+                            value={c.dia_deposito || ''}
+                            onValueChange={async (v) => {
+                              const supabase = createClient()
+                              await supabase.from('canales_ingreso').update({ dia_deposito: v || null }).eq('id', c.id)
+                              loadData()
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-[120px]">
+                              <SelectValue placeholder="Seleccionar..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DIAS_SEMANA.map(d => (
+                                <SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : c.frecuencia === 'diario' ? (
+                          <span className="text-muted-foreground text-xs">N/A</span>
+                        ) : (
+                          <span>{c.dia_deposito ? c.dia_deposito.charAt(0).toUpperCase() + c.dia_deposito.slice(1) : '—'}</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        {userRole !== 'viewer' ? (
+                          <Input
+                            type="number"
+                            className="h-8 w-[120px] text-sm"
+                            defaultValue={c.monto_aproximado || ''}
+                            placeholder="$0"
+                            onBlur={async (e) => {
+                              const val = Number(e.target.value) || null
+                              if (val !== c.monto_aproximado) {
+                                const supabase = createClient()
+                                await supabase.from('canales_ingreso').update({ monto_aproximado: val }).eq('id', c.id)
+                                loadData()
+                                toast.success(`Monto de ${c.nombre} actualizado`)
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span>{c.monto_aproximado ? formatMXN(c.monto_aproximado) : '—'}</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-2 text-center">
+                        {userRole !== 'viewer' && (
+                          <button onClick={() => deleteCanal(c.id)} className="text-red-400 hover:text-red-600 p-1" title="Eliminar canal">
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>
@@ -581,6 +601,76 @@ export default function IngresosPage() {
             </CardContent>
           </Card>
         ))
+      )}
+
+      {/* Add sucursal / canal - at the bottom */}
+      {showConfig && userRole !== 'viewer' && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Agregar sucursal o canal</CardTitle></CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Sucursales */}
+              <div className="space-y-3">
+                <Label className="font-semibold text-base">Sucursales</Label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {sucursales.map(s => (
+                    <Badge key={s.id} variant="outline" className="py-1 pr-1 flex items-center gap-1">
+                      {s.nombre}
+                      <button onClick={() => deleteSucursal(s.id)} className="ml-1 rounded-full hover:bg-red-100 p-0.5">
+                        <X className="h-3 w-3 text-red-500" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+                <form onSubmit={addSucursal} className="flex gap-2">
+                  <Input placeholder="Nombre de la sucursal..." value={newSucursal} onChange={(e) => setNewSucursal(e.target.value)} />
+                  <Button type="submit" size="sm"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
+                </form>
+              </div>
+
+              {/* Canales */}
+              <div className="space-y-3">
+                <Label className="font-semibold text-base">Nuevo canal de ingreso</Label>
+                {canales.length === 0 && (
+                  <Button variant="outline" size="sm" onClick={initDefaults}>
+                    Crear canales predeterminados (Efectivo, Tarjeta, Clip, TPV, Uber, Rappi)
+                  </Button>
+                )}
+                <form onSubmit={addCanal} className="space-y-2 border rounded-md p-3 bg-muted/30">
+                  <div className="flex gap-2">
+                    <Select value={newCanal} onValueChange={setNewCanal}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Seleccionar canal..." /></SelectTrigger>
+                      <SelectContent>
+                        {CANALES_PREDEFINIDOS.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={newCanalFrecuencia} onValueChange={setNewCanalFrecuencia}>
+                      <SelectTrigger className="w-[140px]"><SelectValue placeholder="Frecuencia" /></SelectTrigger>
+                      <SelectContent>
+                        {FRECUENCIAS_INGRESO.map(f => (<SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {newCanal === 'Otro' && (
+                    <Input placeholder="Escribe el nombre del canal..." value={newCanalCustom} onChange={(e) => setNewCanalCustom(e.target.value)} />
+                  )}
+                  {newCanalFrecuencia !== 'diario' && (
+                    <Select value={newCanalDia} onValueChange={setNewCanalDia}>
+                      <SelectTrigger><SelectValue placeholder="Día de depósito..." /></SelectTrigger>
+                      <SelectContent>
+                        {DIAS_SEMANA.map(d => (<SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <div className="flex gap-2">
+                    <Input placeholder="Monto aprox. (opcional)" value={newCanalMonto} onChange={(e) => setNewCanalMonto(e.target.value)} className="flex-1" type="number" />
+                    <Button type="submit" size="sm"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Grand total */}

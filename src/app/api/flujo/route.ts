@@ -205,16 +205,16 @@ export async function GET(request: Request) {
       })
     })
 
-    // --- REAL INCOME (ingresos_diarios) ---
+    // --- ESTIMATED INCOME (ingresos_diarios / ingresos aproximados) ---
     ingresosReales?.forEach((ing) => {
       if (ing.fecha !== dateStr) return
       const monto = Number(ing.monto)
       if (monto <= 0) return
       const canalNombre = (ing as unknown as Record<string, Record<string, string>>).canales_ingreso?.nombre || 'Ingreso'
       const sucNombre = (ing as unknown as Record<string, Record<string, string>>).sucursales?.nombre || ''
-      ingreso_real += monto
+      ingreso_estimado += monto
       items.push({
-        tipo: 'ingreso_real',
+        tipo: 'ingreso_estimado',
         descripcion: sucNombre ? `${canalNombre} (${sucNombre})` : canalNombre,
         monto,
         origen: 'ingreso_diario',

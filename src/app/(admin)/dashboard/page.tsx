@@ -299,76 +299,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Upcoming items - collapsible, full width, moved to top */}
-      <Card>
-        <CardHeader
-          className="cursor-pointer hover:bg-muted/50 transition-colors py-3"
-          onClick={() => setShowUpcoming(!showUpcoming)}
-        >
-          <CardTitle className="flex items-center justify-between text-base">
-            <span className="flex items-center gap-2">
-              Próximos 10 días
-              {upcomingItems.length > 0 && (
-                <Badge variant="outline" className="text-xs">{upcomingItems.length} movimientos</Badge>
-              )}
-              {overdue.items.length > 0 && (
-                <Badge variant="outline" className="bg-red-50 text-red-700 text-xs">
-                  {overdue.items.length} vencidas — {formatMXN(overdue.total)}
-                </Badge>
-              )}
-            </span>
-            {showUpcoming ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </CardTitle>
-        </CardHeader>
-        {showUpcoming && (
-          <CardContent className="pt-0">
-            {/* Overdue items */}
-            {overdue.items.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs font-semibold text-red-700 mb-2">Facturas vencidas</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-                  {overdue.items.map((item, idx) => (
-                    <div key={`ov-${idx}`} className="flex items-center justify-between p-2 rounded-md border border-red-200 bg-red-50">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate text-red-900">{item.descripcion}</p>
-                        <p className="text-xs text-red-500">Vencida</p>
-                      </div>
-                      <span className="text-sm font-semibold text-red-700 shrink-0 ml-2">-{formatMXN(item.monto)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* Upcoming items */}
-            {upcomingItems.length === 0 && overdue.items.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Sin movimientos próximos</p>
-            ) : upcomingItems.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-                {upcomingItems.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2 rounded-md border">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.descripcion}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {format(parseISO(item.fecha), "dd 'de' MMM", { locale: es })}
-                        {' · '}
-                        {item.origen === 'factura' ? 'Factura' :
-                         item.origen === 'pago_programado' ? 'Pago prog.' : 'Tentativo'}
-                      </p>
-                    </div>
-                    <span className="text-sm font-semibold shrink-0 ml-2" style={{
-                      color: item.tipo.includes('ingreso') ? FLOW_COLORS.ingreso_real : FLOW_COLORS.egreso_real
-                    }}>
-                      {item.tipo.includes('ingreso') ? '+' : '-'}{formatMXN(item.monto)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </CardContent>
-        )}
-      </Card>
-
-      {/* 15-day flow table - full width */}
+      {/* Flow table - full width */}
       <Card>
         <CardHeader>
           <CardTitle>Flujo de efectivo — {numDias} días</CardTitle>
@@ -534,6 +465,75 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
         </CardContent>
+      </Card>
+
+      {/* Facturas vencidas y próximos movimientos */}
+      <Card>
+        <CardHeader
+          className="cursor-pointer hover:bg-muted/50 transition-colors py-3"
+          onClick={() => setShowUpcoming(!showUpcoming)}
+        >
+          <CardTitle className="flex items-center justify-between text-base">
+            <span className="flex items-center gap-2">
+              Facturas y movimientos próximos
+              {upcomingItems.length > 0 && (
+                <Badge variant="outline" className="text-xs">{upcomingItems.length} movimientos</Badge>
+              )}
+              {overdue.items.length > 0 && (
+                <Badge variant="outline" className="bg-red-50 text-red-700 text-xs">
+                  {overdue.items.length} vencidas — {formatMXN(overdue.total)}
+                </Badge>
+              )}
+            </span>
+            {showUpcoming ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </CardTitle>
+        </CardHeader>
+        {showUpcoming && (
+          <CardContent className="pt-0">
+            {/* Overdue items */}
+            {overdue.items.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-red-700 mb-2">Facturas vencidas</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                  {overdue.items.map((item, idx) => (
+                    <div key={`ov-${idx}`} className="flex items-center justify-between p-2 rounded-md border border-red-200 bg-red-50">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate text-red-900">{item.descripcion}</p>
+                        <p className="text-xs text-red-500">Vencida</p>
+                      </div>
+                      <span className="text-sm font-semibold text-red-700 shrink-0 ml-2">-{formatMXN(item.monto)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Upcoming items */}
+            {upcomingItems.length === 0 && overdue.items.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Sin movimientos próximos</p>
+            ) : upcomingItems.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                {upcomingItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-2 rounded-md border">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{item.descripcion}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(parseISO(item.fecha), "dd 'de' MMM", { locale: es })}
+                        {' · '}
+                        {item.origen === 'factura' ? 'Factura' :
+                         item.origen === 'pago_programado' ? 'Pago prog.' : 'Tentativo'}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold shrink-0 ml-2" style={{
+                      color: item.tipo.includes('ingreso') ? FLOW_COLORS.ingreso_real : FLOW_COLORS.egreso_real
+                    }}>
+                      {item.tipo.includes('ingreso') ? '+' : '-'}{formatMXN(item.monto)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        )}
       </Card>
     </div>
   )
