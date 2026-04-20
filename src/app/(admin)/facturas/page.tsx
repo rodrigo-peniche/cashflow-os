@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { MoneyInput } from '@/components/shared/money-input'
-import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil, Plus, FileUp, AlertTriangle, Clock, CheckCircle, DollarSign, TrendingUp } from 'lucide-react'
+import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil, Plus, FileUp, AlertTriangle, Clock, CheckCircle, DollarSign, TrendingUp, Square, CheckSquare } from 'lucide-react'
 import { SortableHeader } from '@/components/shared/sortable-header'
 import { ProveedorCombobox } from '@/components/shared/proveedor-combobox'
 
@@ -148,13 +148,18 @@ export default function FacturasPage() {
   const [facturas, setFacturas] = useState<FacturaExtended[]>([])
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterStatus, setFilterStatus] = useState('todos')
+  const [filterStatus, setFilterStatus] = useState('por_pagar')
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const { empresaId, userRole } = useEmpresa()
   const [showForm, setShowForm] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkModal, setShowBulkModal] = useState(false)
+  const [bulkCuentaId, setBulkCuentaId] = useState('')
+  const [bulkFechaPago, setBulkFechaPago] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [cuentas, setCuentas] = useState<{ id: string; nombre: string; banco: string }[]>([])
 
   // New factura form state
   const [formNumero, setFormNumero] = useState('')
@@ -174,14 +179,16 @@ export default function FacturasPage() {
   const loadData = useCallback(async () => {
     if (!empresaId) return
     const supabase = createClient()
-    const [facturasRes, provsRes, sucRes] = await Promise.all([
+    const [facturasRes, provsRes, sucRes, cuentasRes] = await Promise.all([
       supabase.from('facturas').select('*, proveedores(nombre_empresa), ordenes_compra(numero_oc), sucursales(id, nombre)').eq('empresa_id', empresaId).order('created_at', { ascending: false }),
       supabase.from('proveedores').select('*').eq('empresa_id', empresaId).eq('activo', true).order('nombre_empresa'),
       supabase.from('sucursales').select('*').eq('empresa_id', empresaId).eq('activa', true).order('nombre'),
+      supabase.from('cuentas_bancarias').select('id, nombre, banco').eq('empresa_id', empresaId).eq('activa', true).order('nombre'),
     ])
     setFacturas(facturasRes.data || [])
     setProveedores(provsRes.data || [])
     setSucursales(sucRes.data || [])
+    setCuentas(cuentasRes.data || [])
     setLoading(false)
   }, [empresaId])
 
@@ -416,7 +423,16 @@ export default function FacturasPage() {
   }
 
   let filtered = facturas.filter((f) => {
-    if (filterStatus !== 'todos' && f.estatus !== filterStatus) return false
+    if (filterStatus === 'por_pagar') {
+      if (f.estatus === 'pagada' || f.estatus === 'rechazada') return false
+    } else if (filterStatus === 'vencidas') {
+      if (f.estatus === 'pagada' || f.estatus === 'rechazada') return false
+      const fecha = f.fecha_vencimiento || f.fecha_factura
+      if (!fecha) return false
+      if (new Date(fecha + 'T12:00:00') >= new Date(new Date().toISOString().slice(0, 10) + 'T12:00:00')) return false
+    } else if (filterStatus !== 'todos' && f.estatus !== filterStatus) {
+      return false
+    }
     if (search) {
       const q = search.toLowerCase()
       if (!f.numero_factura.toLowerCase().includes(q) && !getProveedorNombre(f).toLowerCase().includes(q)) return false
@@ -453,6 +469,39 @@ export default function FacturasPage() {
     'Pago programado': f.fecha_programada_pago || '',
     'Observaciones': f.observaciones || '',
   }))
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map(f => f.id)))
+    }
+  }
+
+  async function bulkMarkPagada() {
+    if (selectedIds.size === 0) return
+    const supabase = createClient()
+    const updates: Record<string, unknown> = {
+      estatus: 'pagada',
+      fecha_programada_pago: bulkFechaPago,
+    }
+    const ids = Array.from(selectedIds)
+    const { error } = await supabase.from('facturas').update(updates).in('id', ids)
+    if (error) { toast.error(error.message); return }
+    toast.success(`${ids.length} factura(s) marcadas como pagadas`)
+    setSelectedIds(new Set())
+    setShowBulkModal(false)
+    loadData()
+  }
 
   if (loading) return <div className="space-y-4"><Skeleton className="h-12" /><Skeleton className="h-64" /></div>
 
@@ -579,27 +628,17 @@ export default function FacturasPage() {
           if (!fecha) return false
           return new Date(fecha + 'T12:00:00') < new Date(new Date().toISOString().slice(0, 10) + 'T12:00:00')
         })
-        const porVencer7d = facturas.filter(f => {
-          if (f.estatus === 'pagada' || f.estatus === 'rechazada') return false
-          const fecha = f.fecha_vencimiento || f.fecha_factura
-          if (!fecha) return false
-          const venc = new Date(fecha + 'T12:00:00')
-          const today = new Date(new Date().toISOString().slice(0, 10) + 'T12:00:00')
-          const diff = differenceInDays(venc, today)
-          return diff >= 0 && diff <= 7
-        })
+        const porPagar = facturas.filter(f => f.estatus !== 'pagada' && f.estatus !== 'rechazada')
 
         const totalPendiente = pendientes.reduce((s, f) => s + f.total, 0)
-        const totalAprobada = aprobadas.reduce((s, f) => s + f.total, 0)
         const totalProgramada = programadas.reduce((s, f) => s + f.total, 0)
         const totalPagada = pagadas.reduce((s, f) => s + f.total, 0)
         const totalVencida = vencidas.reduce((s, f) => s + f.total, 0)
-        const totalPorVencer = porVencer7d.reduce((s, f) => s + f.total, 0)
-        const totalPorPagar = totalPendiente + totalAprobada + totalProgramada
+        const totalPorPagar = porPagar.reduce((s, f) => s + f.total, 0)
 
         // Top proveedores by pending amount
         const provPending = new Map<string, { nombre: string; total: number; count: number }>()
-        facturas.filter(f => f.estatus !== 'pagada' && f.estatus !== 'rechazada').forEach(f => {
+        porPagar.forEach(f => {
           const nombre = getProveedorNombre(f) || 'Sin proveedor'
           const prev = provPending.get(nombre) || { nombre, total: 0, count: 0 }
           prev.total += f.total
@@ -608,82 +647,42 @@ export default function FacturasPage() {
         })
         const topProveedores = Array.from(provPending.values()).sort((a, b) => b.total - a.total).slice(0, 5)
 
+        // Bubble filter config
+        const bubbles = [
+          { key: 'por_pagar', label: 'Por pagar', count: porPagar.length, amount: totalPorPagar, icon: <DollarSign className="h-3.5 w-3.5" />, colors: 'border-blue-300 bg-blue-50 text-blue-800', active: 'bg-blue-600 text-white border-blue-600' },
+          { key: 'vencidas', label: 'Vencidas', count: vencidas.length, amount: totalVencida, icon: <AlertTriangle className="h-3.5 w-3.5" />, colors: 'border-red-300 bg-red-50 text-red-800', active: 'bg-red-600 text-white border-red-600' },
+          { key: 'pendiente', label: 'Pendientes', count: pendientes.length, amount: totalPendiente, icon: <Clock className="h-3.5 w-3.5" />, colors: 'border-yellow-300 bg-yellow-50 text-yellow-800', active: 'bg-yellow-600 text-white border-yellow-600' },
+          { key: 'aprobada', label: 'Aprobadas', count: aprobadas.length, amount: aprobadas.reduce((s, f) => s + f.total, 0), icon: <CheckCircle className="h-3.5 w-3.5" />, colors: 'border-blue-300 bg-blue-50 text-blue-700', active: 'bg-blue-500 text-white border-blue-500' },
+          { key: 'programada', label: 'Programadas', count: programadas.length, amount: totalProgramada, icon: <CalendarDays className="h-3.5 w-3.5" />, colors: 'border-purple-300 bg-purple-50 text-purple-800', active: 'bg-purple-600 text-white border-purple-600' },
+          { key: 'pagada', label: 'Pagadas', count: pagadas.length, amount: totalPagada, icon: <CheckCircle className="h-3.5 w-3.5" />, colors: 'border-green-300 bg-green-50 text-green-800', active: 'bg-green-600 text-white border-green-600' },
+          { key: 'todos', label: 'Todas', count: facturas.length, amount: facturas.reduce((s, f) => s + f.total, 0), icon: <Receipt className="h-3.5 w-3.5" />, colors: 'border-gray-300 bg-gray-50 text-gray-700', active: 'bg-gray-700 text-white border-gray-700' },
+        ]
+
         return (
           <>
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <Card className={vencidas.length > 0 ? 'border-red-200 bg-red-50/50' : ''}>
-                <CardContent className="pt-4 pb-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <AlertTriangle className={`h-4 w-4 ${vencidas.length > 0 ? 'text-red-600' : 'text-muted-foreground'}`} />
-                    <span className="text-xs text-muted-foreground">Vencidas</span>
-                  </div>
-                  <p className={`text-lg font-bold ${vencidas.length > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                    {vencidas.length > 0 ? formatMXN(totalVencida) : '$0'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{vencidas.length} factura(s)</p>
-                </CardContent>
-              </Card>
-
-              <Card className={porVencer7d.length > 0 ? 'border-orange-200 bg-orange-50/50' : ''}>
-                <CardContent className="pt-4 pb-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Clock className={`h-4 w-4 ${porVencer7d.length > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
-                    <span className="text-xs text-muted-foreground">Próx. 7 días</span>
-                  </div>
-                  <p className={`text-lg font-bold ${porVencer7d.length > 0 ? 'text-orange-700' : 'text-muted-foreground'}`}>
-                    {formatMXN(totalPorVencer)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{porVencer7d.length} factura(s)</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-4 pb-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Receipt className="h-4 w-4 text-yellow-600" />
-                    <span className="text-xs text-muted-foreground">Pendientes</span>
-                  </div>
-                  <p className="text-lg font-bold text-yellow-700">{formatMXN(totalPendiente)}</p>
-                  <p className="text-xs text-muted-foreground">{pendientes.length} factura(s)</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-4 pb-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <CalendarDays className="h-4 w-4 text-purple-600" />
-                    <span className="text-xs text-muted-foreground">Programadas</span>
-                  </div>
-                  <p className="text-lg font-bold text-purple-700">{formatMXN(totalProgramada)}</p>
-                  <p className="text-xs text-muted-foreground">{programadas.length} factura(s)</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-4 pb-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <span className="text-xs text-muted-foreground">Pagadas</span>
-                  </div>
-                  <p className="text-lg font-bold text-green-700">{formatMXN(totalPagada)}</p>
-                  <p className="text-xs text-muted-foreground">{pagadas.length} factura(s)</p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-blue-200 bg-blue-50/50">
-                <CardContent className="pt-4 pb-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <DollarSign className="h-4 w-4 text-blue-600" />
-                    <span className="text-xs text-muted-foreground">Total por pagar</span>
-                  </div>
-                  <p className="text-lg font-bold text-blue-700">{formatMXN(totalPorPagar)}</p>
-                  <p className="text-xs text-muted-foreground">{pendientes.length + aprobadas.length + programadas.length} factura(s)</p>
-                </CardContent>
-              </Card>
+            {/* Bubble filters */}
+            <div className="flex flex-wrap gap-2">
+              {bubbles.map(b => (
+                <button
+                  key={b.key}
+                  onClick={() => { setFilterStatus(b.key); setSelectedIds(new Set()) }}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
+                    filterStatus === b.key ? b.active : b.colors + ' hover:shadow-sm'
+                  }`}
+                >
+                  {b.icon}
+                  <span>{b.label}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${filterStatus === b.key ? 'bg-white/20' : 'bg-white/80'}`}>
+                    {b.count}
+                  </span>
+                  <span className={`text-xs font-normal ${filterStatus === b.key ? 'text-white/80' : 'opacity-70'}`}>
+                    {formatMXN(b.amount)}
+                  </span>
+                </button>
+              ))}
             </div>
 
-            {/* Top proveedores + status breakdown */}
+            {/* Summary row + Top proveedores */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Status distribution bar */}
               <Card>
@@ -695,25 +694,25 @@ export default function FacturasPage() {
                     const total = facturas.length
                     if (total === 0) return <p className="text-sm text-muted-foreground">Sin facturas</p>
                     const segments = [
-                      { label: 'Pendiente', count: pendientes.length, color: 'bg-yellow-400' },
-                      { label: 'Aprobada', count: aprobadas.length, color: 'bg-blue-400' },
-                      { label: 'Programada', count: programadas.length, color: 'bg-purple-400' },
-                      { label: 'Pagada', count: pagadas.length, color: 'bg-green-400' },
-                      { label: 'Rechazada', count: facturas.filter(f => f.estatus === 'rechazada').length, color: 'bg-red-400' },
+                      { label: 'Pendiente', count: pendientes.length, color: 'bg-yellow-400', key: 'pendiente' },
+                      { label: 'Aprobada', count: aprobadas.length, color: 'bg-blue-400', key: 'aprobada' },
+                      { label: 'Programada', count: programadas.length, color: 'bg-purple-400', key: 'programada' },
+                      { label: 'Pagada', count: pagadas.length, color: 'bg-green-400', key: 'pagada' },
+                      { label: 'Rechazada', count: facturas.filter(f => f.estatus === 'rechazada').length, color: 'bg-red-400', key: 'rechazada' },
                     ].filter(s => s.count > 0)
                     return (
                       <div className="space-y-2">
                         <div className="flex w-full h-4 rounded-full overflow-hidden">
                           {segments.map(s => (
-                            <div key={s.label} className={`${s.color} transition-all`} style={{ width: `${(s.count / total) * 100}%` }} title={`${s.label}: ${s.count}`} />
+                            <div key={s.label} className={`${s.color} transition-all cursor-pointer hover:opacity-80`} style={{ width: `${(s.count / total) * 100}%` }} title={`${s.label}: ${s.count}`} onClick={() => setFilterStatus(s.key)} />
                           ))}
                         </div>
                         <div className="flex flex-wrap gap-3 text-xs">
                           {segments.map(s => (
-                            <div key={s.label} className="flex items-center gap-1.5">
+                            <button key={s.label} className="flex items-center gap-1.5 hover:underline" onClick={() => setFilterStatus(s.key)}>
                               <div className={`w-2.5 h-2.5 rounded-full ${s.color}`} />
                               <span>{s.label}: {s.count} ({Math.round((s.count / total) * 100)}%)</span>
-                            </div>
+                            </button>
                           ))}
                         </div>
                       </div>
@@ -758,20 +757,74 @@ export default function FacturasPage() {
         )
       })()}
 
-      <div className="flex flex-col sm:flex-row gap-3">
+      {/* Search + bulk actions */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <Input placeholder="Buscar por # factura o proveedor..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filtrar estatus" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            {STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {selectedIds.size > 0 && userRole !== 'viewer' && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">{selectedIds.size} seleccionada(s)</span>
+            <span className="text-sm font-medium">
+              {formatMXN(filtered.filter(f => selectedIds.has(f.id)).reduce((s, f) => s + f.total, 0))}
+            </span>
+            <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => setShowBulkModal(true)}>
+              <CheckCircle className="h-4 w-4 mr-1" /> Marcar pagada(s)
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
+              Deseleccionar
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* Bulk payment modal */}
+      {showBulkModal && (
+        <Card className="border-green-200 bg-green-50/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              Marcar {selectedIds.size} factura(s) como pagada(s)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-sm text-muted-foreground mb-2">
+              Total: <span className="font-bold text-green-800">{formatMXN(filtered.filter(f => selectedIds.has(f.id)).reduce((s, f) => s + f.total, 0))}</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-sm">Fecha de pago</Label>
+                <Input type="date" value={bulkFechaPago} onChange={e => setBulkFechaPago(e.target.value)} />
+              </div>
+              {cuentas.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Cuenta de pago (opcional)</Label>
+                  <Select value={bulkCuentaId} onValueChange={setBulkCuentaId}>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin especificar</SelectItem>
+                      {cuentas.map(c => <SelectItem key={c.id} value={c.id}>{c.nombre} — {c.banco}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            {/* List selected facturas */}
+            <div className="max-h-[200px] overflow-y-auto space-y-1 border rounded-md p-2 bg-white">
+              {filtered.filter(f => selectedIds.has(f.id)).map(f => (
+                <div key={f.id} className="flex justify-between text-sm py-1 border-b last:border-0">
+                  <span>{f.numero_factura} — {getProveedorNombre(f) || 'Sin proveedor'}</span>
+                  <span className="font-medium">{formatMXN(f.total)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowBulkModal(false)}>Cancelar</Button>
+              <Button className="bg-green-600 hover:bg-green-700" onClick={bulkMarkPagada}>
+                <CheckCircle className="h-4 w-4 mr-1" /> Confirmar pago
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ─── New Factura Form ──────────────────────────────── */}
       {showForm && (
@@ -913,6 +966,16 @@ export default function FacturasPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {userRole !== 'viewer' && (
+                    <TableHead className="w-8 pr-0">
+                      <button onClick={(e) => { e.stopPropagation(); toggleSelectAll() }} className="p-1">
+                        {selectedIds.size === filtered.length && filtered.length > 0
+                          ? <CheckSquare className="h-4 w-4 text-blue-600" />
+                          : <Square className="h-4 w-4 text-muted-foreground" />
+                        }
+                      </button>
+                    </TableHead>
+                  )}
                   <TableHead className="w-8"></TableHead>
                   <SortableHeader label="# Factura" column="numero_factura" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Proveedor" column="proveedor" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
@@ -932,9 +995,19 @@ export default function FacturasPage() {
                   return (
                     <React.Fragment key={f.id}>
                       <TableRow
-                        className={`cursor-pointer hover:bg-muted/50 ${isExpanded ? 'border-b-0 bg-muted/30' : ''}`}
+                        className={`cursor-pointer hover:bg-muted/50 ${isExpanded ? 'border-b-0 bg-muted/30' : ''} ${selectedIds.has(f.id) ? 'bg-blue-50' : ''}`}
                         onClick={() => setExpandedId(isExpanded ? null : f.id)}
                       >
+                        {userRole !== 'viewer' && (
+                          <TableCell className="w-8 pr-0" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => toggleSelect(f.id)} className="p-1">
+                              {selectedIds.has(f.id)
+                                ? <CheckSquare className="h-4 w-4 text-blue-600" />
+                                : <Square className="h-4 w-4 text-muted-foreground" />
+                              }
+                            </button>
+                          </TableCell>
+                        )}
                         <TableCell className="w-8 pr-0">
                           {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                         </TableCell>
@@ -974,7 +1047,7 @@ export default function FacturasPage() {
                       </TableRow>
                       {isExpanded && (
                         <TableRow>
-                          <TableCell colSpan={10} className="bg-muted/30 p-4" onClick={(e) => e.stopPropagation()}>
+                          <TableCell colSpan={11} className="bg-muted/30 p-4" onClick={(e) => e.stopPropagation()}>
                             <FacturaDetailPanel
                               factura={f}
                               proveedores={proveedores}
@@ -999,7 +1072,7 @@ export default function FacturasPage() {
                   )
                 })}
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No hay facturas</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">No hay facturas con este filtro</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
