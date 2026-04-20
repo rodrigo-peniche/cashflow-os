@@ -18,7 +18,7 @@ import { useEmpresa } from '@/lib/contexts/empresa-context'
 import { ExportButton } from '@/components/shared/export-button'
 import { ExcelImport } from '@/components/shared/excel-import'
 import { SortableHeader } from '@/components/shared/sortable-header'
-import { HandCoins, Plus, UserPlus, ChevronDown, ChevronUp, Check, X, AlertTriangle, Calculator, Send } from 'lucide-react'
+import { HandCoins, Plus, UserPlus, ChevronDown, ChevronUp, Check, X, AlertTriangle, Calculator, Send, Pencil, Trash2, Save } from 'lucide-react'
 
 const TIPOS_APORTACION = [
   { value: 'a_cuenta', label: 'A cuenta bancaria', color: 'bg-blue-100 text-blue-800' },
@@ -29,6 +29,14 @@ const STATUS_COLORS: Record<string, string> = {
   pendiente: 'bg-yellow-100 text-yellow-800',
   recibida: 'bg-green-100 text-green-800',
   cancelada: 'bg-red-100 text-red-800',
+}
+
+interface SolicitudLine {
+  concepto: string
+  monto: string
+  fechaCompromiso: string
+  tipo: string
+  cuentaId: string
 }
 
 export default function AportacionesPage() {
@@ -57,24 +65,33 @@ export default function AportacionesPage() {
   const [formMetodo, setFormMetodo] = useState('')
   const [formNotas, setFormNotas] = useState('')
   const [formFechaCompromiso, setFormFechaCompromiso] = useState('')
+  const [formSolicitudId, setFormSolicitudId] = useState('')
 
   // Socio form
   const [newSocioNombre, setNewSocioNombre] = useState('')
   const [newSocioEmail, setNewSocioEmail] = useState('')
   const [newSocioPorcentaje, setNewSocioPorcentaje] = useState('')
 
-  // Solicitud de aportación - multi-line
-  interface SolicitudLine {
-    concepto: string
+  // Editing state
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editData, setEditData] = useState<{
     monto: string
-    fechaCompromiso: string
-  }
+    fecha: string
+    tipo: string
+    cuenta_bancaria_id: string
+    concepto: string
+    notas: string
+    fecha_compromiso: string
+    estatus: string
+  }>({ monto: '', fecha: '', tipo: '', cuenta_bancaria_id: '', concepto: '', notas: '', fecha_compromiso: '', estatus: '' })
+
+  // Solicitud de aportación - multi-line
   const [solicitudLines, setSolicitudLines] = useState<SolicitudLine[]>([
-    { concepto: 'Solicitud de aportación', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd') }
+    { concepto: 'Solicitud de aportación', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd'), tipo: 'a_cuenta', cuentaId: '' }
   ])
 
   function addSolicitudLine() {
-    setSolicitudLines(prev => [...prev, { concepto: '', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd') }])
+    setSolicitudLines(prev => [...prev, { concepto: '', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd'), tipo: 'a_cuenta', cuentaId: '' }])
   }
 
   function updateSolicitudLine(index: number, field: keyof SolicitudLine, value: string) {
@@ -93,20 +110,16 @@ export default function AportacionesPage() {
       supabase.from('socios').select('*').eq('empresa_id', empresaId).eq('activo', true).order('nombre'),
       supabase.from('aportaciones').select('*, socios(nombre), cuentas_bancarias(nombre, banco)').eq('empresa_id', empresaId).order('fecha', { ascending: false }),
       supabase.from('cuentas_bancarias').select('*').eq('empresa_id', empresaId).eq('activa', true).order('nombre'),
-      // Facturas pendientes (no pagadas, no rechazadas)
       supabase.from('facturas').select('total').eq('empresa_id', empresaId).not('estatus', 'in', '("pagada","rechazada")'),
-      // Get all accounts for latest balance
       supabase.from('cuentas_bancarias').select('id').eq('empresa_id', empresaId).eq('activa', true),
     ])
     setSocios(sociosRes.data || [])
     setAportaciones(aportRes.data || [])
     setCuentas(cuentasRes.data || [])
 
-    // Sum pending invoices
     const totalFact = (facturasRes.data || []).reduce((s, f) => s + (f.total || 0), 0)
     setTotalFacturasPendientes(totalFact)
 
-    // Get latest balance per account
     const cuentaIds = (cuentasAllRes.data || []).map(c => c.id)
     let totalSaldos = 0
     if (cuentaIds.length > 0) {
@@ -155,25 +168,57 @@ export default function AportacionesPage() {
     loadData()
   }
 
+  // Fill form from a pending solicitud
+  function fillFromSolicitud(solicitudId: string) {
+    const sol = aportaciones.find(a => a.id === solicitudId)
+    if (!sol) return
+    setFormSolicitudId(solicitudId)
+    setFormSocio(sol.socio_id)
+    setFormMonto(String(sol.monto))
+    setFormConcepto(sol.concepto || '')
+    setFormTipo(sol.tipo || 'a_cuenta')
+    setFormCuenta(sol.cuenta_bancaria_id || '')
+    setFormFechaCompromiso(sol.fecha_compromiso || '')
+    setFormFecha(format(new Date(), 'yyyy-MM-dd'))
+  }
+
   async function addAportacion(e: React.FormEvent) {
     e.preventDefault()
     if (!formSocio || !formMonto || !formFecha) { toast.error('Socio, monto y fecha son requeridos'); return }
     const supabase = createClient()
-    const { error } = await supabase.from('aportaciones').insert({
-      empresa_id: empresaId,
-      socio_id: formSocio,
-      monto: Number(formMonto),
-      fecha: formFecha,
-      tipo: formTipo,
-      cuenta_bancaria_id: formTipo === 'a_cuenta' && formCuenta ? formCuenta : null,
-      concepto: formConcepto.trim() || null,
-      metodo_pago: formMetodo.trim() || null,
-      notas: formNotas.trim() || null,
-      fecha_compromiso: formFechaCompromiso || null,
-      estatus: 'pendiente',
-    })
-    if (error) { toast.error(error.message); return }
-    toast.success('Aportación registrada')
+
+    // If linked to a solicitud, update that record instead of creating new
+    if (formSolicitudId) {
+      const { error } = await supabase.from('aportaciones').update({
+        monto: Number(formMonto),
+        fecha: formFecha,
+        tipo: formTipo,
+        cuenta_bancaria_id: formTipo === 'a_cuenta' && formCuenta ? formCuenta : null,
+        concepto: formConcepto.trim() || null,
+        metodo_pago: formMetodo.trim() || null,
+        notas: formNotas.trim() || null,
+        estatus: 'recibida',
+      }).eq('id', formSolicitudId)
+      if (error) { toast.error(error.message); return }
+      toast.success('Solicitud marcada como recibida')
+    } else {
+      const { error } = await supabase.from('aportaciones').insert({
+        empresa_id: empresaId,
+        socio_id: formSocio,
+        monto: Number(formMonto),
+        fecha: formFecha,
+        tipo: formTipo,
+        cuenta_bancaria_id: formTipo === 'a_cuenta' && formCuenta ? formCuenta : null,
+        concepto: formConcepto.trim() || null,
+        metodo_pago: formMetodo.trim() || null,
+        notas: formNotas.trim() || null,
+        fecha_compromiso: formFechaCompromiso || null,
+        estatus: 'recibida',
+      })
+      if (error) { toast.error(error.message); return }
+      toast.success('Aportación registrada')
+    }
+
     setFormSocio('')
     setFormMonto('')
     setFormTipo('a_cuenta')
@@ -182,6 +227,7 @@ export default function AportacionesPage() {
     setFormMetodo('')
     setFormNotas('')
     setFormFechaCompromiso('')
+    setFormSolicitudId('')
     setShowForm(false)
     loadData()
   }
@@ -194,9 +240,54 @@ export default function AportacionesPage() {
     loadData()
   }
 
+  function startEdit(a: Aportacion) {
+    setEditingId(a.id)
+    setEditData({
+      monto: String(a.monto),
+      fecha: a.fecha,
+      tipo: a.tipo || 'a_cuenta',
+      cuenta_bancaria_id: a.cuenta_bancaria_id || '',
+      concepto: a.concepto || '',
+      notas: a.notas || '',
+      fecha_compromiso: a.fecha_compromiso || '',
+      estatus: a.estatus,
+    })
+  }
+
+  async function saveEdit() {
+    if (!editingId) return
+    const supabase = createClient()
+    const { error } = await supabase.from('aportaciones').update({
+      monto: Number(editData.monto),
+      fecha: editData.fecha,
+      tipo: editData.tipo,
+      cuenta_bancaria_id: editData.tipo === 'a_cuenta' && editData.cuenta_bancaria_id ? editData.cuenta_bancaria_id : null,
+      concepto: editData.concepto.trim() || null,
+      notas: editData.notas.trim() || null,
+      fecha_compromiso: editData.fecha_compromiso || null,
+      estatus: editData.estatus,
+    }).eq('id', editingId)
+    if (error) { toast.error(error.message); return }
+    toast.success('Aportación actualizada')
+    setEditingId(null)
+    loadData()
+  }
+
+  async function deleteAportacion(id: string) {
+    if (!confirm('¿Eliminar esta aportación?')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('aportaciones').delete().eq('id', id)
+    if (error) { toast.error(error.message); return }
+    toast.success('Aportación eliminada')
+    loadData()
+  }
+
   function getSocioNombre(a: Aportacion): string {
     return (a as unknown as Record<string, Record<string, string>>).socios?.nombre || ''
   }
+
+  // Pending solicitudes (for linking in the form)
+  const pendingSolicitudes = aportaciones.filter(a => a.estatus === 'pendiente')
 
   let filtered = aportaciones.filter(a => {
     if (filterSocio !== 'todos' && a.socio_id !== filterSocio) return false
@@ -219,9 +310,9 @@ export default function AportacionesPage() {
 
   // Totals
   const totalRecibidas = aportaciones.filter(a => a.estatus === 'recibida').reduce((s, a) => s + a.monto, 0)
-  const totalPendientes = aportaciones.filter(a => a.estatus === 'pendiente').reduce((s, a) => s + a.monto, 0)
-  const totalACuenta = aportaciones.filter(a => a.tipo === 'a_cuenta').reduce((s, a) => s + a.monto, 0)
-  const totalEfectivo = aportaciones.filter(a => a.tipo === 'efectivo').reduce((s, a) => s + a.monto, 0)
+  const totalPendientesVal = aportaciones.filter(a => a.estatus === 'pendiente').reduce((s, a) => s + a.monto, 0)
+  const totalACuenta = aportaciones.filter(a => a.tipo === 'a_cuenta' && a.estatus === 'recibida').reduce((s, a) => s + a.monto, 0)
+  const totalEfectivo = aportaciones.filter(a => a.tipo === 'efectivo' && a.estatus === 'recibida').reduce((s, a) => s + a.monto, 0)
 
   // Per-socio totals
   const socioTotals = socios.map(s => {
@@ -230,8 +321,8 @@ export default function AportacionesPage() {
       ...s,
       totalRecibido: socioAports.filter(a => a.estatus === 'recibida').reduce((sum, a) => sum + a.monto, 0),
       totalPendiente: socioAports.filter(a => a.estatus === 'pendiente').reduce((sum, a) => sum + a.monto, 0),
-      totalACuenta: socioAports.filter(a => a.tipo === 'a_cuenta').reduce((sum, a) => sum + a.monto, 0),
-      totalEfectivo: socioAports.filter(a => a.tipo === 'efectivo').reduce((sum, a) => sum + a.monto, 0),
+      totalACuenta: socioAports.filter(a => a.tipo === 'a_cuenta' && a.estatus === 'recibida').reduce((sum, a) => sum + a.monto, 0),
+      totalEfectivo: socioAports.filter(a => a.tipo === 'efectivo' && a.estatus === 'recibida').reduce((sum, a) => sum + a.monto, 0),
       count: socioAports.length,
     }
   })
@@ -302,10 +393,10 @@ export default function AportacionesPage() {
                   return result
                 }}
               />
-              <Button variant="outline" size="sm" onClick={() => setShowSocioForm(!showSocioForm)}>
+              <Button variant="outline" size="sm" onClick={() => { setShowSocioForm(!showSocioForm); setShowForm(false) }}>
                 <UserPlus className="h-4 w-4 mr-1" /> Socio
               </Button>
-              <Button size="sm" onClick={() => setShowForm(!showForm)}>
+              <Button size="sm" onClick={() => { setShowForm(!showForm); setShowSocioForm(false); setFormSolicitudId('') }}>
                 <Plus className="h-4 w-4 mr-1" /> Aportación
               </Button>
             </>
@@ -313,7 +404,7 @@ export default function AportacionesPage() {
         </div>
       </div>
 
-      {/* Add socio form - right after header */}
+      {/* Add socio form */}
       {showSocioForm && (
         <Card>
           <CardHeader><CardTitle className="text-base">Nuevo socio</CardTitle></CardHeader>
@@ -328,16 +419,52 @@ export default function AportacionesPage() {
         </Card>
       )}
 
-      {/* Add aportación form - right after header */}
+      {/* Add aportación form */}
       {showForm && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Nueva aportación</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {formSolicitudId ? 'Registrar aportación de solicitud pendiente' : 'Nueva aportación'}
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <form onSubmit={addAportacion} className="space-y-3">
+              {/* Link to pending solicitud */}
+              {!formSolicitudId && pendingSolicitudes.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Vincular a solicitud pendiente (opcional)</Label>
+                  <Select value="" onValueChange={(val) => fillFromSolicitud(val)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar solicitud pendiente para llenar datos..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pendingSolicitudes.map(s => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {getSocioNombre(s)} — {formatMXN(s.monto)} — {s.concepto || 'Sin concepto'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {formSolicitudId && (
+                <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-md border border-blue-200 text-sm">
+                  <Send className="h-4 w-4 text-blue-600" />
+                  <span className="text-blue-800">Vinculada a solicitud pendiente. Al registrar se marcará como recibida.</span>
+                  <Button type="button" variant="ghost" size="sm" className="ml-auto h-6 text-xs" onClick={() => {
+                    setFormSolicitudId('')
+                    setFormSocio('')
+                    setFormMonto('')
+                    setFormConcepto('')
+                  }}>
+                    Desvincular
+                  </Button>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div className="space-y-1">
                   <Label className="text-sm">Socio *</Label>
-                  <Select value={formSocio} onValueChange={setFormSocio}>
+                  <Select value={formSocio} onValueChange={setFormSocio} disabled={!!formSolicitudId}>
                     <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
                     <SelectContent>
                       {socios.map(s => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}
@@ -375,13 +502,16 @@ export default function AportacionesPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Input placeholder="Concepto (opcional)" value={formConcepto} onChange={e => setFormConcepto(e.target.value)} />
+                <Input placeholder="Método de pago (opcional)" value={formMetodo} onChange={e => setFormMetodo(e.target.value)} />
                 <Input placeholder="Observaciones (opcional)" value={formNotas} onChange={e => setFormNotas(e.target.value)} />
-                <div className="space-y-1">
-                  <Label className="text-sm">Fecha compromiso (opcional)</Label>
-                  <Input type="date" value={formFechaCompromiso} onChange={e => setFormFechaCompromiso(e.target.value)} />
-                </div>
               </div>
-              <Button type="submit"><Plus className="h-4 w-4 mr-1" /> Registrar aportación</Button>
+              <div className="flex gap-2">
+                <Button type="submit">
+                  <Plus className="h-4 w-4 mr-1" />
+                  {formSolicitudId ? 'Registrar y marcar como recibida' : 'Registrar aportación'}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => { setShowForm(false); setFormSolicitudId('') }}>Cancelar</Button>
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -398,7 +528,7 @@ export default function AportacionesPage() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Pendiente por recibir</p>
-            <p className="text-2xl font-bold text-yellow-700">{formatMXN(totalPendientes)}</p>
+            <p className="text-2xl font-bold text-yellow-700">{formatMXN(totalPendientesVal)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -415,7 +545,7 @@ export default function AportacionesPage() {
         </Card>
       </div>
 
-      {/* Necesidad de aportación - auto-calculado */}
+      {/* Necesidad de aportación */}
       {(() => {
         const faltante = totalFacturasPendientes - totalSaldosBancarios
         const porSocio = socios.length > 0 ? faltante / socios.length : 0
@@ -426,7 +556,7 @@ export default function AportacionesPage() {
                 <Calculator className="h-5 w-5" />
                 Necesidad de aportación
               </CardTitle>
-              <p className="text-xs text-muted-foreground">Calculado automáticamente: facturas pendientes de pago − saldos bancarios actuales</p>
+              <p className="text-xs text-muted-foreground">Calculado automáticamente: facturas pendientes de pago - saldos bancarios actuales</p>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -492,7 +622,7 @@ export default function AportacionesPage() {
                   <span className="text-blue-700">A cuenta: {formatMXN(s.totalACuenta)}</span>
                   <span className="text-green-700">Efectivo: {formatMXN(s.totalEfectivo)}</span>
                   {s.totalPendiente > 0 && <span className="text-yellow-700">Pendiente: {formatMXN(s.totalPendiente)}</span>}
-                  <span className="font-semibold text-gray-900 mt-0.5">Total: {formatMXN(s.totalACuenta + s.totalEfectivo)}</span>
+                  <span className="font-semibold text-gray-900 mt-0.5">Total recibido: {formatMXN(s.totalACuenta + s.totalEfectivo)}</span>
                 </div>
               </CardContent>
             </Card>
@@ -568,7 +698,7 @@ export default function AportacionesPage() {
               Solicitud de aportación
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Genera aportaciones pendientes para cada socio. Agrega varias líneas con diferentes conceptos y montos.
+              Crea solicitudes pendientes para cada socio. Agrega varias líneas con diferentes conceptos y montos.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -576,44 +706,66 @@ export default function AportacionesPage() {
               const montoVal = line.monto ? Number(line.monto) : null
               const porSocio = montoVal && socios.length > 0 ? Math.round((montoVal / socios.length) * 100) / 100 : 0
               return (
-                <div key={idx} className="flex flex-wrap items-end gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-                  <div className="space-y-1 flex-1 min-w-[200px]">
-                    <Label className="text-sm">Concepto</Label>
-                    <Input
-                      value={line.concepto}
-                      onChange={e => updateSolicitudLine(idx, 'concepto', e.target.value)}
-                      placeholder="Concepto de la solicitud"
-                    />
-                  </div>
-                  <div className="space-y-1 w-[180px]">
-                    <Label className="text-sm">Monto total *</Label>
-                    <Input
-                      type="number"
-                      value={line.monto}
-                      onChange={e => updateSolicitudLine(idx, 'monto', e.target.value)}
-                      placeholder="$0.00"
-                      step="0.01"
-                    />
-                  </div>
-                  <div className="space-y-1 w-[170px]">
-                    <Label className="text-sm">Fecha compromiso</Label>
-                    <Input
-                      type="date"
-                      value={line.fechaCompromiso}
-                      onChange={e => updateSolicitudLine(idx, 'fechaCompromiso', e.target.value)}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {porSocio > 0 && (
-                      <span className="text-xs text-blue-700 font-medium whitespace-nowrap">
-                        {formatMXN(porSocio)} c/u
-                      </span>
+                <div key={idx} className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 space-y-2">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="space-y-1 flex-1 min-w-[200px]">
+                      <Label className="text-sm">Concepto</Label>
+                      <Input
+                        value={line.concepto}
+                        onChange={e => updateSolicitudLine(idx, 'concepto', e.target.value)}
+                        placeholder="Concepto de la solicitud"
+                      />
+                    </div>
+                    <div className="space-y-1 w-[160px]">
+                      <Label className="text-sm">Monto total *</Label>
+                      <Input
+                        type="number"
+                        value={line.monto}
+                        onChange={e => updateSolicitudLine(idx, 'monto', e.target.value)}
+                        placeholder="$0.00"
+                        step="0.01"
+                      />
+                    </div>
+                    <div className="space-y-1 w-[150px]">
+                      <Label className="text-sm">Fecha compromiso</Label>
+                      <Input
+                        type="date"
+                        value={line.fechaCompromiso}
+                        onChange={e => updateSolicitudLine(idx, 'fechaCompromiso', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1 w-[150px]">
+                      <Label className="text-sm">Tipo</Label>
+                      <Select value={line.tipo} onValueChange={v => updateSolicitudLine(idx, 'tipo', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {TIPOS_APORTACION.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {line.tipo === 'a_cuenta' && cuentas.length > 0 && (
+                      <div className="space-y-1 w-[180px]">
+                        <Label className="text-sm">Cuenta</Label>
+                        <Select value={line.cuentaId} onValueChange={v => updateSolicitudLine(idx, 'cuentaId', v)}>
+                          <SelectTrigger><SelectValue placeholder="Cuenta..." /></SelectTrigger>
+                          <SelectContent>
+                            {cuentas.map(c => <SelectItem key={c.id} value={c.id}>{c.nombre} — {c.banco}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     )}
-                    {solicitudLines.length > 1 && (
-                      <Button variant="ghost" size="sm" onClick={() => removeSolicitudLine(idx)} className="h-8 w-8 p-0 text-red-500 hover:text-red-700">
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {porSocio > 0 && (
+                        <span className="text-xs text-blue-700 font-medium whitespace-nowrap">
+                          {formatMXN(porSocio)} c/u
+                        </span>
+                      )}
+                      {solicitudLines.length > 1 && (
+                        <Button variant="ghost" size="sm" onClick={() => removeSolicitudLine(idx)} className="h-8 w-8 p-0 text-red-500 hover:text-red-700">
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
@@ -635,6 +787,8 @@ export default function AportacionesPage() {
                         concepto: 'Cobertura de facturas pendientes',
                         monto: String(Math.round(faltante * 100) / 100),
                         fechaCompromiso: format(new Date(), 'yyyy-MM-dd'),
+                        tipo: 'a_cuenta',
+                        cuentaId: '',
                       }])
                     }}
                   >
@@ -679,19 +833,19 @@ export default function AportacionesPage() {
                               socio_id: s.id,
                               monto: porSocio,
                               fecha: format(new Date(), 'yyyy-MM-dd'),
-                              tipo: 'a_cuenta',
+                              tipo: line.tipo,
+                              cuenta_bancaria_id: line.tipo === 'a_cuenta' && line.cuentaId ? line.cuentaId : null,
                               concepto: line.concepto.trim() || 'Solicitud de aportación',
                               estatus: 'pendiente',
                               fecha_compromiso: line.fechaCompromiso || format(new Date(), 'yyyy-MM-dd'),
-                              notas: `Auto-generado: ${line.concepto || 'Solicitud'} — Total ${formatMXN(Number(line.monto))} ÷ ${socios.length} socios`,
+                              notas: `Solicitud: ${line.concepto || 'Aportación'} — Total ${formatMXN(Number(line.monto))} / ${socios.length} socios`,
                             })
                           }
                         }
                         const { error } = await supabase.from('aportaciones').insert(inserts)
                         if (error) { toast.error(error.message); return }
-                        const totalCreadas = inserts.length
-                        toast.success(`${totalCreadas} aportaciones creadas (${validLines.length} concepto(s) × ${socios.length} socios)`)
-                        setSolicitudLines([{ concepto: 'Solicitud de aportación', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd') }])
+                        toast.success(`${inserts.length} solicitudes creadas (${validLines.length} concepto(s) x ${socios.length} socios)`)
+                        setSolicitudLines([{ concepto: 'Solicitud de aportación', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd'), tipo: 'a_cuenta', cuentaId: '' }])
                         loadData()
                       }}
                     >
@@ -740,64 +894,160 @@ export default function AportacionesPage() {
                 <TableHead>Compromiso</TableHead>
                 <TableHead>Concepto</TableHead>
                 <SortableHeader label="Estatus" column="estatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                <TableHead></TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map(a => {
                 const isExpanded = expandedId === a.id
-                return (
-                  <TableRow key={a.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setExpandedId(isExpanded ? null : a.id)}>
-                    <TableCell className="pr-0">
-                      {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                    </TableCell>
-                    <TableCell className="font-medium">{getSocioNombre(a)}</TableCell>
-                    <TableCell className="text-right font-medium">{formatMXN(a.monto)}</TableCell>
-                    <TableCell>{format(new Date(a.fecha + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
-                    <TableCell>
-                      {(() => {
-                        const tipoInfo = TIPOS_APORTACION.find(t => t.value === a.tipo)
-                        const cuentaNombre = (a as unknown as Record<string, Record<string, string>>).cuentas_bancarias?.nombre
-                        return (
-                          <div>
-                            <Badge variant="outline" className={tipoInfo?.color}>{tipoInfo?.label || a.tipo || 'A cuenta'}</Badge>
-                            {cuentaNombre && <p className="text-xs text-muted-foreground mt-0.5">{cuentaNombre}</p>}
-                          </div>
-                        )
-                      })()}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {a.fecha_compromiso ? (
-                        <span className={a.estatus === 'pendiente' && new Date(a.fecha_compromiso + 'T12:00:00') < new Date() ? 'text-red-600 font-medium' : 'text-muted-foreground'}>
-                          {format(new Date(a.fecha_compromiso + 'T12:00:00'), 'dd/MM/yy')}
-                        </span>
-                      ) : (
-                        a.estatus === 'pendiente' ? <span className="text-yellow-600 text-xs">Sin fecha</span> : '—'
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{a.concepto || '—'}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={STATUS_COLORS[a.estatus]}>
-                        {a.estatus.charAt(0).toUpperCase() + a.estatus.slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell onClick={e => e.stopPropagation()}>
-                      {userRole !== 'viewer' && a.estatus === 'pendiente' && (
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => updateEstatus(a.id, 'recibida')} title="Marcar como recibida">
-                            <Check className="h-4 w-4 text-green-600" />
+                const isEditing = editingId === a.id
+
+                if (isEditing) {
+                  return (
+                    <TableRow key={a.id} className="bg-yellow-50">
+                      <TableCell></TableCell>
+                      <TableCell className="font-medium">{getSocioNombre(a)}</TableCell>
+                      <TableCell>
+                        <Input type="number" value={editData.monto} onChange={e => setEditData(d => ({ ...d, monto: e.target.value }))} className="w-[120px] h-8 text-right" step="0.01" />
+                      </TableCell>
+                      <TableCell>
+                        <Input type="date" value={editData.fecha} onChange={e => setEditData(d => ({ ...d, fecha: e.target.value }))} className="w-[140px] h-8" />
+                      </TableCell>
+                      <TableCell>
+                        <Select value={editData.tipo} onValueChange={v => setEditData(d => ({ ...d, tipo: v }))}>
+                          <SelectTrigger className="h-8 w-[130px]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {TIPOS_APORTACION.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Input type="date" value={editData.fecha_compromiso} onChange={e => setEditData(d => ({ ...d, fecha_compromiso: e.target.value }))} className="w-[140px] h-8" />
+                      </TableCell>
+                      <TableCell>
+                        <Input value={editData.concepto} onChange={e => setEditData(d => ({ ...d, concepto: e.target.value }))} className="w-[150px] h-8" placeholder="Concepto" />
+                      </TableCell>
+                      <TableCell>
+                        <Select value={editData.estatus} onValueChange={v => setEditData(d => ({ ...d, estatus: v }))}>
+                          <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pendiente">Pendiente</SelectItem>
+                            <SelectItem value="recibida">Recibida</SelectItem>
+                            <SelectItem value="cancelada">Cancelada</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="sm" onClick={saveEdit} title="Guardar">
+                            <Save className="h-4 w-4 text-green-600" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => updateEstatus(a.id, 'cancelada')} title="Cancelar">
-                            <X className="h-4 w-4 text-red-500" />
+                          <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} title="Cancelar">
+                            <X className="h-4 w-4 text-gray-500" />
                           </Button>
                         </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                      </TableCell>
+                    </TableRow>
+                  )
+                }
+
+                return (
+                  <>
+                    <TableRow key={a.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setExpandedId(isExpanded ? null : a.id)}>
+                      <TableCell className="pr-0">
+                        {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                      </TableCell>
+                      <TableCell className="font-medium">{getSocioNombre(a)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatMXN(a.monto)}</TableCell>
+                      <TableCell>{format(new Date(a.fecha + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
+                      <TableCell>
+                        {(() => {
+                          const tipoInfo = TIPOS_APORTACION.find(t => t.value === a.tipo)
+                          const cuentaNombre = (a as unknown as Record<string, Record<string, string>>).cuentas_bancarias?.nombre
+                          return (
+                            <div>
+                              <Badge variant="outline" className={tipoInfo?.color}>{tipoInfo?.label || a.tipo || 'A cuenta'}</Badge>
+                              {cuentaNombre && <p className="text-xs text-muted-foreground mt-0.5">{cuentaNombre}</p>}
+                            </div>
+                          )
+                        })()}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {a.fecha_compromiso ? (
+                          <span className={a.estatus === 'pendiente' && new Date(a.fecha_compromiso + 'T12:00:00') < new Date() ? 'text-red-600 font-medium' : 'text-muted-foreground'}>
+                            {format(new Date(a.fecha_compromiso + 'T12:00:00'), 'dd/MM/yy')}
+                          </span>
+                        ) : (
+                          a.estatus === 'pendiente' ? <span className="text-yellow-600 text-xs">Sin fecha</span> : '—'
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{a.concepto || '—'}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={STATUS_COLORS[a.estatus]}>
+                          {a.estatus.charAt(0).toUpperCase() + a.estatus.slice(1)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        {userRole !== 'viewer' && (
+                          <div className="flex gap-1 justify-end">
+                            {a.estatus === 'pendiente' && (
+                              <>
+                                <Button variant="ghost" size="sm" onClick={() => {
+                                  setShowForm(true)
+                                  fillFromSolicitud(a.id)
+                                }} title="Registrar aportación">
+                                  <Check className="h-4 w-4 text-green-600" />
+                                </Button>
+                              </>
+                            )}
+                            <Button variant="ghost" size="sm" onClick={() => startEdit(a)} title="Editar">
+                              <Pencil className="h-4 w-4 text-blue-600" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => deleteAportacion(a.id)} title="Eliminar">
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow key={`${a.id}-detail`}>
+                        <TableCell colSpan={9} className="bg-muted/30 p-4">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                              <p className="text-muted-foreground text-xs">Método de pago</p>
+                              <p className="font-medium">{a.metodo_pago || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Observaciones</p>
+                              <p className="font-medium">{a.notas || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs">Creado</p>
+                              <p className="font-medium">{a.created_at ? format(new Date(a.created_at), 'dd/MM/yy HH:mm') : '—'}</p>
+                            </div>
+                            {a.estatus === 'pendiente' && (
+                              <div>
+                                <p className="text-muted-foreground text-xs mb-1">Cambiar estatus</p>
+                                <div className="flex gap-1">
+                                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => updateEstatus(a.id, 'recibida')}>
+                                    <Check className="h-3 w-3 mr-1" /> Recibida
+                                  </Button>
+                                  <Button variant="outline" size="sm" className="h-7 text-xs text-red-600" onClick={() => updateEstatus(a.id, 'cancelada')}>
+                                    <X className="h-3 w-3 mr-1" /> Cancelar
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 )
               })}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No hay aportaciones</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No hay aportaciones</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
