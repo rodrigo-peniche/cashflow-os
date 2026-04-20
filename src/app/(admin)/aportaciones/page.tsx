@@ -63,6 +63,29 @@ export default function AportacionesPage() {
   const [newSocioEmail, setNewSocioEmail] = useState('')
   const [newSocioPorcentaje, setNewSocioPorcentaje] = useState('')
 
+  // Solicitud de aportación - multi-line
+  interface SolicitudLine {
+    concepto: string
+    monto: string
+    fechaCompromiso: string
+  }
+  const [solicitudLines, setSolicitudLines] = useState<SolicitudLine[]>([
+    { concepto: 'Solicitud de aportación', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd') }
+  ])
+
+  function addSolicitudLine() {
+    setSolicitudLines(prev => [...prev, { concepto: '', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd') }])
+  }
+
+  function updateSolicitudLine(index: number, field: keyof SolicitudLine, value: string) {
+    setSolicitudLines(prev => prev.map((line, i) => i === index ? { ...line, [field]: value } : line))
+  }
+
+  function removeSolicitudLine(index: number) {
+    if (solicitudLines.length <= 1) return
+    setSolicitudLines(prev => prev.filter((_, i) => i !== index))
+  }
+
   const loadData = useCallback(async () => {
     if (!empresaId) return
     const supabase = createClient()
@@ -290,6 +313,80 @@ export default function AportacionesPage() {
         </div>
       </div>
 
+      {/* Add socio form - right after header */}
+      {showSocioForm && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Nuevo socio</CardTitle></CardHeader>
+          <CardContent>
+            <form onSubmit={addSocio} className="flex flex-wrap gap-3">
+              <Input placeholder="Nombre *" value={newSocioNombre} onChange={e => setNewSocioNombre(e.target.value)} className="flex-1 min-w-[200px]" required />
+              <Input placeholder="Email (opcional)" type="email" value={newSocioEmail} onChange={e => setNewSocioEmail(e.target.value)} className="w-[200px]" />
+              <Input placeholder="% participación" type="number" value={newSocioPorcentaje} onChange={e => setNewSocioPorcentaje(e.target.value)} className="w-[130px]" step="0.01" min="0" max="100" />
+              <Button type="submit"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Add aportación form - right after header */}
+      {showForm && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Nueva aportación</CardTitle></CardHeader>
+          <CardContent>
+            <form onSubmit={addAportacion} className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-sm">Socio *</Label>
+                  <Select value={formSocio} onValueChange={setFormSocio}>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+                    <SelectContent>
+                      {socios.map(s => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-sm">Monto *</Label>
+                  <Input type="number" placeholder="$0.00" value={formMonto} onChange={e => setFormMonto(e.target.value)} step="0.01" required />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-sm">Fecha *</Label>
+                  <Input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} required />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-sm">Tipo *</Label>
+                  <Select value={formTipo} onValueChange={setFormTipo}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TIPOS_APORTACION.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formTipo === 'a_cuenta' && (
+                  <div className="space-y-1">
+                    <Label className="text-sm">Cuenta bancaria</Label>
+                    <Select value={formCuenta} onValueChange={setFormCuenta}>
+                      <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
+                      <SelectContent>
+                        {cuentas.map(c => <SelectItem key={c.id} value={c.id}>{c.nombre} — {c.banco}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Input placeholder="Concepto (opcional)" value={formConcepto} onChange={e => setFormConcepto(e.target.value)} />
+                <Input placeholder="Observaciones (opcional)" value={formNotas} onChange={e => setFormNotas(e.target.value)} />
+                <div className="space-y-1">
+                  <Label className="text-sm">Fecha compromiso (opcional)</Label>
+                  <Input type="date" value={formFechaCompromiso} onChange={e => setFormFechaCompromiso(e.target.value)} />
+                </div>
+              </div>
+              <Button type="submit"><Plus className="h-4 w-4 mr-1" /> Registrar aportación</Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -463,7 +560,7 @@ export default function AportacionesPage() {
       })()}
 
       {/* Solicitud de aportación */}
-      {userRole !== 'viewer' && socios.length > 0 && totalFacturasPendientes > totalSaldosBancarios && (
+      {userRole !== 'viewer' && socios.length > 0 && (
         <Card className="border-blue-200">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -471,135 +568,140 @@ export default function AportacionesPage() {
               Solicitud de aportación
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Genera aportaciones pendientes automáticas para cada socio con el monto necesario para cubrir las facturas
+              Genera aportaciones pendientes para cada socio. Agrega varias líneas con diferentes conceptos y montos.
             </p>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1">
-                <Label className="text-sm">Fecha compromiso</Label>
-                <Input
-                  type="date"
-                  id="solicitud-fecha"
-                  defaultValue={format(new Date(), 'yyyy-MM-dd')}
-                  className="w-[180px]"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-sm">Concepto</Label>
-                <Input
-                  id="solicitud-concepto"
-                  defaultValue="Solicitud de aportación"
-                  placeholder="Concepto"
-                  className="w-[250px]"
-                />
-              </div>
-              <Button
-                variant="outline"
-                className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                onClick={async () => {
-                  const faltante = totalFacturasPendientes - totalSaldosBancarios
-                  if (faltante <= 0) { toast.error('No hay faltante'); return }
-                  const porSocio = faltante / socios.length
-                  const fechaInput = (document.getElementById('solicitud-fecha') as HTMLInputElement)?.value || format(new Date(), 'yyyy-MM-dd')
-                  const conceptoInput = (document.getElementById('solicitud-concepto') as HTMLInputElement)?.value || 'Solicitud de aportación'
-
-                  const supabase = createClient()
-                  const inserts = socios.map(s => ({
-                    empresa_id: empresaId,
-                    socio_id: s.id,
-                    monto: Math.round(porSocio * 100) / 100,
-                    fecha: format(new Date(), 'yyyy-MM-dd'),
-                    tipo: 'a_cuenta' as const,
-                    concepto: conceptoInput,
-                    estatus: 'pendiente',
-                    fecha_compromiso: fechaInput,
-                    notas: `Auto-generado: Facturas pendientes ${formatMXN(totalFacturasPendientes)} - Saldos ${formatMXN(totalSaldosBancarios)} = ${formatMXN(faltante)}`,
-                  }))
-                  const { error } = await supabase.from('aportaciones').insert(inserts)
-                  if (error) { toast.error(error.message); return }
-                  toast.success(`Solicitud creada para ${socios.length} socio(s) por ${formatMXN(porSocio)} cada uno`)
-                  loadData()
-                }}
-              >
-                <Send className="h-4 w-4 mr-1" />
-                Crear solicitud para {socios.length} socio(s) — {formatMXN(Math.round(((totalFacturasPendientes - totalSaldosBancarios) / Math.max(socios.length, 1)) * 100) / 100)} c/u
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Add socio form */}
-      {showSocioForm && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Nuevo socio</CardTitle></CardHeader>
-          <CardContent>
-            <form onSubmit={addSocio} className="flex flex-wrap gap-3">
-              <Input placeholder="Nombre *" value={newSocioNombre} onChange={e => setNewSocioNombre(e.target.value)} className="flex-1 min-w-[200px]" required />
-              <Input placeholder="Email (opcional)" type="email" value={newSocioEmail} onChange={e => setNewSocioEmail(e.target.value)} className="w-[200px]" />
-              <Input placeholder="% participación" type="number" value={newSocioPorcentaje} onChange={e => setNewSocioPorcentaje(e.target.value)} className="w-[130px]" step="0.01" min="0" max="100" />
-              <Button type="submit"><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Add aportación form */}
-      {showForm && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Nueva aportación</CardTitle></CardHeader>
-          <CardContent>
-            <form onSubmit={addAportacion} className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-sm">Socio *</Label>
-                  <Select value={formSocio} onValueChange={setFormSocio}>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
-                    <SelectContent>
-                      {socios.map(s => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-sm">Monto *</Label>
-                  <Input type="number" placeholder="$0.00" value={formMonto} onChange={e => setFormMonto(e.target.value)} step="0.01" required />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-sm">Fecha *</Label>
-                  <Input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} required />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-sm">Tipo *</Label>
-                  <Select value={formTipo} onValueChange={setFormTipo}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {TIPOS_APORTACION.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {formTipo === 'a_cuenta' && (
-                  <div className="space-y-1">
-                    <Label className="text-sm">Cuenta bancaria</Label>
-                    <Select value={formCuenta} onValueChange={setFormCuenta}>
-                      <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
-                      <SelectContent>
-                        {cuentas.map(c => <SelectItem key={c.id} value={c.id}>{c.nombre} — {c.banco}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+          <CardContent className="space-y-3">
+            {solicitudLines.map((line, idx) => {
+              const montoVal = line.monto ? Number(line.monto) : null
+              const porSocio = montoVal && socios.length > 0 ? Math.round((montoVal / socios.length) * 100) / 100 : 0
+              return (
+                <div key={idx} className="flex flex-wrap items-end gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                  <div className="space-y-1 flex-1 min-w-[200px]">
+                    <Label className="text-sm">Concepto</Label>
+                    <Input
+                      value={line.concepto}
+                      onChange={e => updateSolicitudLine(idx, 'concepto', e.target.value)}
+                      placeholder="Concepto de la solicitud"
+                    />
                   </div>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Input placeholder="Concepto (opcional)" value={formConcepto} onChange={e => setFormConcepto(e.target.value)} />
-                <Input placeholder="Observaciones (opcional)" value={formNotas} onChange={e => setFormNotas(e.target.value)} />
-                <div className="space-y-1">
-                  <Label className="text-sm">Fecha compromiso (opcional)</Label>
-                  <Input type="date" value={formFechaCompromiso} onChange={e => setFormFechaCompromiso(e.target.value)} />
+                  <div className="space-y-1 w-[180px]">
+                    <Label className="text-sm">Monto total *</Label>
+                    <Input
+                      type="number"
+                      value={line.monto}
+                      onChange={e => updateSolicitudLine(idx, 'monto', e.target.value)}
+                      placeholder="$0.00"
+                      step="0.01"
+                    />
+                  </div>
+                  <div className="space-y-1 w-[170px]">
+                    <Label className="text-sm">Fecha compromiso</Label>
+                    <Input
+                      type="date"
+                      value={line.fechaCompromiso}
+                      onChange={e => updateSolicitudLine(idx, 'fechaCompromiso', e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {porSocio > 0 && (
+                      <span className="text-xs text-blue-700 font-medium whitespace-nowrap">
+                        {formatMXN(porSocio)} c/u
+                      </span>
+                    )}
+                    {solicitudLines.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => removeSolicitudLine(idx)} className="h-8 w-8 p-0 text-red-500 hover:text-red-700">
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <Button type="submit"><Plus className="h-4 w-4 mr-1" /> Registrar aportación</Button>
-            </form>
+              )
+            })}
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={addSolicitudLine} className="text-blue-700 border-blue-200">
+                <Plus className="h-4 w-4 mr-1" /> Agregar línea
+              </Button>
+              {(() => {
+                const faltante = totalFacturasPendientes - totalSaldosBancarios
+                const faltantePerSocio = socios.length > 0 ? Math.round((faltante / socios.length) * 100) / 100 : 0
+                return faltante > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    onClick={() => {
+                      setSolicitudLines([{
+                        concepto: 'Cobertura de facturas pendientes',
+                        monto: String(Math.round(faltante * 100) / 100),
+                        fechaCompromiso: format(new Date(), 'yyyy-MM-dd'),
+                      }])
+                    }}
+                  >
+                    <Calculator className="h-3.5 w-3.5 mr-1" />
+                    Auto-llenar faltante ({formatMXN(faltante)} total, {formatMXN(faltantePerSocio)} c/u)
+                  </Button>
+                )
+              })()}
+            </div>
+            <div className="pt-2 border-t border-blue-100">
+              {(() => {
+                const totalSolicitud = solicitudLines.reduce((s, l) => s + (Number(l.monto) || 0), 0)
+                const totalPorSocio = socios.length > 0 ? Math.round((totalSolicitud / socios.length) * 100) / 100 : 0
+                return (
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm">
+                      {solicitudLines.length > 1 && (
+                        <span className="text-muted-foreground mr-3">
+                          Total: <span className="font-semibold text-blue-800">{formatMXN(totalSolicitud)}</span>
+                        </span>
+                      )}
+                      {totalPorSocio > 0 && (
+                        <span className="text-muted-foreground">
+                          Por socio: <span className="font-semibold text-blue-800">{formatMXN(totalPorSocio)}</span>
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      className="border-blue-300 text-white bg-blue-600 hover:bg-blue-700"
+                      disabled={solicitudLines.every(l => !l.monto || Number(l.monto) <= 0)}
+                      onClick={async () => {
+                        const validLines = solicitudLines.filter(l => l.monto && Number(l.monto) > 0)
+                        if (validLines.length === 0) { toast.error('Agrega al menos un monto'); return }
+
+                        const supabase = createClient()
+                        const inserts: Record<string, unknown>[] = []
+                        for (const line of validLines) {
+                          const porSocio = Math.round((Number(line.monto) / socios.length) * 100) / 100
+                          for (const s of socios) {
+                            inserts.push({
+                              empresa_id: empresaId,
+                              socio_id: s.id,
+                              monto: porSocio,
+                              fecha: format(new Date(), 'yyyy-MM-dd'),
+                              tipo: 'a_cuenta',
+                              concepto: line.concepto.trim() || 'Solicitud de aportación',
+                              estatus: 'pendiente',
+                              fecha_compromiso: line.fechaCompromiso || format(new Date(), 'yyyy-MM-dd'),
+                              notas: `Auto-generado: ${line.concepto || 'Solicitud'} — Total ${formatMXN(Number(line.monto))} ÷ ${socios.length} socios`,
+                            })
+                          }
+                        }
+                        const { error } = await supabase.from('aportaciones').insert(inserts)
+                        if (error) { toast.error(error.message); return }
+                        const totalCreadas = inserts.length
+                        toast.success(`${totalCreadas} aportaciones creadas (${validLines.length} concepto(s) × ${socios.length} socios)`)
+                        setSolicitudLines([{ concepto: 'Solicitud de aportación', monto: '', fechaCompromiso: format(new Date(), 'yyyy-MM-dd') }])
+                        loadData()
+                      }}
+                    >
+                      <Send className="h-4 w-4 mr-1" />
+                      Crear solicitud para {socios.length} socio(s)
+                    </Button>
+                  </div>
+                )
+              })()}
+            </div>
           </CardContent>
         </Card>
       )}
