@@ -150,6 +150,8 @@ export default function FacturasPage() {
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('por_pagar')
   const [search, setSearch] = useState('')
+  const [filterDesde, setFilterDesde] = useState('')
+  const [filterHasta, setFilterHasta] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -437,6 +439,8 @@ export default function FacturasPage() {
       const q = search.toLowerCase()
       if (!f.numero_factura.toLowerCase().includes(q) && !getProveedorNombre(f).toLowerCase().includes(q)) return false
     }
+    if (filterDesde && f.fecha_factura < filterDesde) return false
+    if (filterHasta && f.fecha_factura > filterHasta) return false
     return true
   })
 
@@ -760,6 +764,14 @@ export default function FacturasPage() {
       {/* Search + bulk actions */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <Input placeholder="Buscar por # factura o proveedor..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">Desde</Label>
+          <Input type="date" value={filterDesde} onChange={e => setFilterDesde(e.target.value)} className="w-[150px] h-9" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">Hasta</Label>
+          <Input type="date" value={filterHasta} onChange={e => setFilterHasta(e.target.value)} className="w-[150px] h-9" />
+        </div>
         {selectedIds.size > 0 && userRole !== 'viewer' && (
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">{selectedIds.size} seleccionada(s)</span>

@@ -23,6 +23,8 @@ import {
   CreditCard,
   BookOpen,
   Store,
+  BarChart3,
+  Landmark,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -40,7 +42,9 @@ const NAV_ITEMS = [
   { href: '/sucursales', label: 'Sucursales', icon: Store },
   { href: '/ingresos', label: 'Ingresos aproximados', icon: DollarSign },
   { href: '/flujos', label: 'Flujos tentativos', icon: TrendingUpDown },
+  { href: '/reportes', label: 'Reportes', icon: BarChart3 },
   { href: '/aportaciones', label: 'Aportaciones socios', icon: HandCoins },
+  { href: '/creditos', label: 'Créditos', icon: Landmark },
   { href: '/gastos-tarjeta', label: 'Gastos tarjeta', icon: CreditCard },
   { href: '/manual', label: 'Manual de usuario', icon: BookOpen },
 ]

@@ -12,7 +12,8 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
 import type { Proveedor, Factura } from '@/lib/types'
-import { FileText, Plus, Download, Clock, CheckCircle, XCircle, AlertCircle, LogOut } from 'lucide-react'
+import { toast } from 'sonner'
+import { FileText, Plus, Download, Clock, CheckCircle, XCircle, AlertCircle, LogOut, ThumbsUp } from 'lucide-react'
 
 const STATUS_CONFIG: Record<string, { color: string; icon: typeof Clock; label: string }> = {
   pendiente: { color: 'bg-yellow-100 text-yellow-800 border-yellow-300', icon: Clock, label: 'Pendiente de revisión' },
@@ -63,6 +64,22 @@ export default function PortalProveedor({ params }: { params: { token: string } 
     }
     load()
   }, [params.token])
+
+  async function aprobarParaPago(facturaId: string) {
+    const supabase = createClient()
+    const { error: err } = await supabase
+      .from('facturas')
+      .update({ estatus: 'aprobada' })
+      .eq('id', facturaId)
+      .eq('proveedor_id', proveedor?.id || '')
+    if (err) { toast.error('Error al aprobar'); return }
+    toast.success('Factura aprobada para pago')
+    // Update local state
+    setFacturas(prev => prev.map(f => f.id === facturaId ? { ...f, estatus: 'aprobada' } : f))
+    if (selectedFactura?.id === facturaId) {
+      setSelectedFactura(prev => prev ? { ...prev, estatus: 'aprobada' } : null)
+    }
+  }
 
   function handleLogout() {
     localStorage.removeItem('proveedor_token')
@@ -203,12 +220,25 @@ export default function PortalProveedor({ params }: { params: { token: string } 
                                 <span>Vence: {f.fecha_vencimiento ? format(new Date(f.fecha_vencimiento + 'T12:00:00'), 'dd/MM/yyyy') : '—'}</span>
                               </div>
                             </div>
-                            <div className="text-right shrink-0">
+                            <div className="text-right shrink-0 flex flex-col items-end gap-1">
                               <p className="font-bold text-lg">{formatMXN(f.total)}</p>
                               {f.fecha_programada_pago && (
                                 <p className="text-xs text-muted-foreground">
                                   Pago: {format(new Date(f.fecha_programada_pago + 'T12:00:00'), "dd 'de' MMM yyyy", { locale: es })}
                                 </p>
+                              )}
+                              {f.estatus === 'pendiente' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="mt-1 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    aprobarParaPago(f.id)
+                                  }}
+                                >
+                                  <ThumbsUp className="h-3 w-3 mr-1" /> Aprobar para pago
+                                </Button>
                               )}
                             </div>
                           </div>
@@ -267,6 +297,15 @@ export default function PortalProveedor({ params }: { params: { token: string } 
                       <Badge variant="outline" className={`mt-1 ${STATUS_CONFIG[selectedFactura.estatus]?.color}`}>
                         {STATUS_CONFIG[selectedFactura.estatus]?.label}
                       </Badge>
+                      {selectedFactura.estatus === 'pendiente' && (
+                        <Button
+                          size="sm"
+                          className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => aprobarParaPago(selectedFactura.id)}
+                        >
+                          <ThumbsUp className="h-4 w-4 mr-2" /> Aprobar para pago
+                        </Button>
+                      )}
                     </div>
 
                     {selectedFactura.fecha_programada_pago && (
