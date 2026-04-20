@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { MoneyInput } from '@/components/shared/money-input'
-import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil, Plus, FileUp } from 'lucide-react'
+import { Receipt, ChevronDown, ChevronUp, Upload, MessageSquare, UserPlus, XCircle, CalendarDays, Pencil, Plus, FileUp, AlertTriangle, Clock, CheckCircle, DollarSign, TrendingUp } from 'lucide-react'
 import { SortableHeader } from '@/components/shared/sortable-header'
 import { ProveedorCombobox } from '@/components/shared/proveedor-combobox'
 
@@ -566,6 +566,197 @@ export default function FacturasPage() {
           )}
         </div>
       </div>
+
+      {/* ─── Dashboard Summary ──────────────────────────── */}
+      {(() => {
+        const pendientes = facturas.filter(f => f.estatus === 'pendiente')
+        const aprobadas = facturas.filter(f => f.estatus === 'aprobada')
+        const programadas = facturas.filter(f => f.estatus === 'programada')
+        const pagadas = facturas.filter(f => f.estatus === 'pagada')
+        const vencidas = facturas.filter(f => {
+          if (f.estatus === 'pagada' || f.estatus === 'rechazada') return false
+          const fecha = f.fecha_vencimiento || f.fecha_factura
+          if (!fecha) return false
+          return new Date(fecha + 'T12:00:00') < new Date(new Date().toISOString().slice(0, 10) + 'T12:00:00')
+        })
+        const porVencer7d = facturas.filter(f => {
+          if (f.estatus === 'pagada' || f.estatus === 'rechazada') return false
+          const fecha = f.fecha_vencimiento || f.fecha_factura
+          if (!fecha) return false
+          const venc = new Date(fecha + 'T12:00:00')
+          const today = new Date(new Date().toISOString().slice(0, 10) + 'T12:00:00')
+          const diff = differenceInDays(venc, today)
+          return diff >= 0 && diff <= 7
+        })
+
+        const totalPendiente = pendientes.reduce((s, f) => s + f.total, 0)
+        const totalAprobada = aprobadas.reduce((s, f) => s + f.total, 0)
+        const totalProgramada = programadas.reduce((s, f) => s + f.total, 0)
+        const totalPagada = pagadas.reduce((s, f) => s + f.total, 0)
+        const totalVencida = vencidas.reduce((s, f) => s + f.total, 0)
+        const totalPorVencer = porVencer7d.reduce((s, f) => s + f.total, 0)
+        const totalPorPagar = totalPendiente + totalAprobada + totalProgramada
+
+        // Top proveedores by pending amount
+        const provPending = new Map<string, { nombre: string; total: number; count: number }>()
+        facturas.filter(f => f.estatus !== 'pagada' && f.estatus !== 'rechazada').forEach(f => {
+          const nombre = getProveedorNombre(f) || 'Sin proveedor'
+          const prev = provPending.get(nombre) || { nombre, total: 0, count: 0 }
+          prev.total += f.total
+          prev.count += 1
+          provPending.set(nombre, prev)
+        })
+        const topProveedores = Array.from(provPending.values()).sort((a, b) => b.total - a.total).slice(0, 5)
+
+        return (
+          <>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <Card className={vencidas.length > 0 ? 'border-red-200 bg-red-50/50' : ''}>
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertTriangle className={`h-4 w-4 ${vencidas.length > 0 ? 'text-red-600' : 'text-muted-foreground'}`} />
+                    <span className="text-xs text-muted-foreground">Vencidas</span>
+                  </div>
+                  <p className={`text-lg font-bold ${vencidas.length > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                    {vencidas.length > 0 ? formatMXN(totalVencida) : '$0'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{vencidas.length} factura(s)</p>
+                </CardContent>
+              </Card>
+
+              <Card className={porVencer7d.length > 0 ? 'border-orange-200 bg-orange-50/50' : ''}>
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className={`h-4 w-4 ${porVencer7d.length > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
+                    <span className="text-xs text-muted-foreground">Próx. 7 días</span>
+                  </div>
+                  <p className={`text-lg font-bold ${porVencer7d.length > 0 ? 'text-orange-700' : 'text-muted-foreground'}`}>
+                    {formatMXN(totalPorVencer)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{porVencer7d.length} factura(s)</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Receipt className="h-4 w-4 text-yellow-600" />
+                    <span className="text-xs text-muted-foreground">Pendientes</span>
+                  </div>
+                  <p className="text-lg font-bold text-yellow-700">{formatMXN(totalPendiente)}</p>
+                  <p className="text-xs text-muted-foreground">{pendientes.length} factura(s)</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CalendarDays className="h-4 w-4 text-purple-600" />
+                    <span className="text-xs text-muted-foreground">Programadas</span>
+                  </div>
+                  <p className="text-lg font-bold text-purple-700">{formatMXN(totalProgramada)}</p>
+                  <p className="text-xs text-muted-foreground">{programadas.length} factura(s)</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <span className="text-xs text-muted-foreground">Pagadas</span>
+                  </div>
+                  <p className="text-lg font-bold text-green-700">{formatMXN(totalPagada)}</p>
+                  <p className="text-xs text-muted-foreground">{pagadas.length} factura(s)</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-blue-200 bg-blue-50/50">
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <DollarSign className="h-4 w-4 text-blue-600" />
+                    <span className="text-xs text-muted-foreground">Total por pagar</span>
+                  </div>
+                  <p className="text-lg font-bold text-blue-700">{formatMXN(totalPorPagar)}</p>
+                  <p className="text-xs text-muted-foreground">{pendientes.length + aprobadas.length + programadas.length} factura(s)</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Top proveedores + status breakdown */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Status distribution bar */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Distribución por estatus</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const total = facturas.length
+                    if (total === 0) return <p className="text-sm text-muted-foreground">Sin facturas</p>
+                    const segments = [
+                      { label: 'Pendiente', count: pendientes.length, color: 'bg-yellow-400' },
+                      { label: 'Aprobada', count: aprobadas.length, color: 'bg-blue-400' },
+                      { label: 'Programada', count: programadas.length, color: 'bg-purple-400' },
+                      { label: 'Pagada', count: pagadas.length, color: 'bg-green-400' },
+                      { label: 'Rechazada', count: facturas.filter(f => f.estatus === 'rechazada').length, color: 'bg-red-400' },
+                    ].filter(s => s.count > 0)
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex w-full h-4 rounded-full overflow-hidden">
+                          {segments.map(s => (
+                            <div key={s.label} className={`${s.color} transition-all`} style={{ width: `${(s.count / total) * 100}%` }} title={`${s.label}: ${s.count}`} />
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap gap-3 text-xs">
+                          {segments.map(s => (
+                            <div key={s.label} className="flex items-center gap-1.5">
+                              <div className={`w-2.5 h-2.5 rounded-full ${s.color}`} />
+                              <span>{s.label}: {s.count} ({Math.round((s.count / total) * 100)}%)</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </CardContent>
+              </Card>
+
+              {/* Top proveedores */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    Top proveedores (por pagar)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {topProveedores.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No hay facturas pendientes</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {topProveedores.map((p, i) => {
+                        const maxTotal = topProveedores[0].total
+                        return (
+                          <div key={i} className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span className="truncate max-w-[200px]">{p.nombre}</span>
+                              <span className="font-medium text-right">{formatMXN(p.total)} <span className="text-muted-foreground text-xs">({p.count})</span></span>
+                            </div>
+                            <div className="w-full bg-gray-100 rounded-full h-1.5">
+                              <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${(p.total / maxTotal) * 100}%` }} />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )
+      })()}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <Input placeholder="Buscar por # factura o proveedor..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
