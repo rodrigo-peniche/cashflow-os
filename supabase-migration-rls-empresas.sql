@@ -106,3 +106,18 @@ CREATE POLICY cashflow_empresas_update ON public.empresas
 
 -- NOTA: no se crea política de DELETE para empresas. Borrar una empresa
 -- queda solo para el service_role (rutas de servidor), que ignora RLS.
+
+-- ============================================================
+-- 4. platform_admins
+-- ============================================================
+-- supabase-migration-platform-admins.sql creó una política aquí, pero en la
+-- base no existe: la tabla quedó con RLS activo y cero políticas. Por eso
+-- empresa-context.tsx nunca detecta al platform admin y /plataforma queda
+-- inaccesible para todos.
+ALTER TABLE public.platform_admins ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Platform admins can read their own record" ON public.platform_admins;
+DROP POLICY IF EXISTS cashflow_platform_admins_select ON public.platform_admins;
+CREATE POLICY cashflow_platform_admins_select ON public.platform_admins
+  FOR SELECT TO authenticated
+  USING (user_id = auth.uid());
